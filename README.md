@@ -60,7 +60,7 @@ smart-contract-auditor/
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl python3 python3-pip python3-venv pipx
-```
+
 pipx ensurepath
 source ~/.bashrc
 
@@ -94,7 +94,7 @@ python3 src/main.py --target contracts/ReentrancyBank.sol --open
 
 explorer.exe "$(wslpath -w reports)"
 forge test -vv
-
+```
 🔥 Example Findings
 
 Typical Slither findings include:
@@ -118,4 +118,5 @@ Add more vulnerability templates (tx.origin, access control, etc.)
 GitHub Actions CI for automated scans
 
 PDF report export
+
 
