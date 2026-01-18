@@ -22,9 +22,8 @@ A practical smart contract security project that scans Solidity contracts for vu
 - `reports/*.html`
 
 ---
-
 ## 📂 Project Structure
-
+```
 smart-contract-auditor/
 │
 ├── contracts/ # Solidity contracts to scan
@@ -41,7 +40,7 @@ smart-contract-auditor/
 │
 ├── requirements.txt
 └── README.md
-
+```
 ---
 
 ## ⚙️ Requirements
@@ -118,5 +117,6 @@ Add more vulnerability templates (tx.origin, access control, etc.)
 GitHub Actions CI for automated scans
 
 PDF report export
+
 
 
