@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+reports/
+tmp_scans/
+.env
+.git/
+README.md
+*.json
+*.html
