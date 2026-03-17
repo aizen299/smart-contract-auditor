@@ -1,9 +1,9 @@
-version: "3.9"
-
 services:
   backend:
     build:
       context: ./backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     container_name: chainaudit-backend
     ports:
       - "8000:8000"
@@ -23,6 +23,8 @@ services:
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+    platform: linux/amd64
     container_name: chainaudit-frontend
     ports:
       - "3000:3000"
