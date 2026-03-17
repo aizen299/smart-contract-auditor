@@ -2,7 +2,7 @@ export const scanContract = async (file: File) => {
   const formData = new FormData();
   formData.append("file", file);
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"\;
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const res = await fetch(`${baseUrl}/scan`, {
     method: "POST",
