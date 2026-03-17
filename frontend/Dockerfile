@@ -1,23 +1,20 @@
-FROM node:18-alpine AS builder
+FROM node:18 AS builder
 WORKDIR /app
 
-# Install deps fresh (no npm ci — avoids native binding arch mismatch)
 COPY package.json ./
 RUN npm install
 
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-# Disable font optimization so it doesn't call Google Fonts at build time
-ENV NEXT_FONT_GOOGLE_DISABLED=1
 RUN npm run build
 
-FROM node:18-alpine AS runner
+FROM node:18-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 --ingroup nodejs nextjs
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
