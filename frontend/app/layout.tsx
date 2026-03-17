@@ -1,12 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-
-const jetBrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  weight: ["300", "400", "500", "600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "AuditScan — Smart Contract Security Analysis",
@@ -20,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={jetBrainsMono.variable}>
+    <html lang="en">
       <body className="antialiased bg-[#080b10]">{children}</body>
     </html>
   );

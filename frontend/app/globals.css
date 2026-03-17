@@ -3,6 +3,8 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 
+body { font-family: 'Courier New', ui-monospace, monospace; }
+
 ::selection {
   background-color: rgba(0, 255, 136, 0.2);
   color: #fff;
