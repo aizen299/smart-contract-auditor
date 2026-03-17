@@ -2,23 +2,31 @@
 
 A full-stack smart contract auditing platform. Upload a Solidity file, get a real-time security report with risk scores, severity-ranked findings, and actionable fixes — powered by Slither static analysis.
 
+**Live:** [chainaudit.vercel.app](https://chainaudit.vercel.app)  
+**API:** [smart-contract-auditor-production.up.railway.app](https://smart-contract-auditor-production.up.railway.app)
+
 ---
 
 ## Stack
 
 | Layer | Tech |
 |-------|------|
-| Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS |
+| Frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS v3 |
 | Backend | FastAPI, Python 3.11 |
-| Analysis | Slither, solc-select |
+| Analysis | Slither 0.11.5, solc-select (solc 0.8.24) |
 | Simulation | Foundry (forge) |
+| Deployment | Vercel (frontend) + Railway (backend) |
+| CI/CD | GitHub Actions |
+| Containerization | Docker + docker-compose |
 
 ---
 
 ## Project Structure
-
 ```
 smart-contract-auditor/
+├── .github/
+│   └── workflows/
+│       └── ci.yml             # CI — type check + build on every push
 ├── frontend/                  # Next.js app
 │   ├── app/
 │   │   ├── page.tsx           # Main page (upload → scan → results)
@@ -34,20 +42,25 @@ smart-contract-auditor/
 │   │   └── RiskScore.tsx      # Animated circular gauge
 │   ├── types/
 │   │   └── index.ts
+│   ├── lib/
+│   │   └── api.ts             # fetch wrapper for /scan endpoint
+│   ├── Dockerfile
 │   └── package.json
-│
 ├── backend/                   # FastAPI server
 │   ├── api.py                 # POST /scan endpoint
 │   ├── src/
 │   │   ├── main.py            # CLI entrypoint
-│   │   ├── scanner.py         # Slither runner + report parser
+│   │   ├── scanner.py         # Slither runner + dedup parser
 │   │   ├── rules.py           # Vulnerability rules + scoring engine
 │   │   ├── report_gen.py      # JSON + HTML report writer
 │   │   └── exploit_simulator.py  # Foundry test runner
 │   ├── reports/               # Generated scan reports (gitignored)
-│   ├── requirements.txt
-│   └── .env
-│
+│   ├── Dockerfile
+│   ├── Procfile               # Railway start command
+│   ├── runtime.txt            # Python version for Railway
+│   ├── railway.json           # Railway deployment config
+│   └── requirements.txt
+├── docker-compose.yml         # Local full-stack Docker setup
 └── README.md
 ```
 
@@ -64,14 +77,12 @@ smart-contract-auditor/
 - Foundry: https://getfoundry.sh
 
 ### 1. Install solc
-
 ```bash
 solc-select install 0.8.24
 solc-select use 0.8.24
 ```
 
 ### 2. Backend
-
 ```bash
 cd backend
 python -m venv .venv
@@ -83,7 +94,6 @@ uvicorn api:app --reload
 Backend runs at `http://localhost:8000`.
 
 ### 3. Frontend
-
 ```bash
 cd frontend
 npm install
@@ -92,19 +102,25 @@ npm run dev
 
 Frontend runs at `http://localhost:3000`.
 
+### 4. Docker (full stack)
+```bash
+docker-compose up --build
+```
+
 ---
 
 ## How It Works
 
-1. User uploads a `.sol` file via the frontend
-2. Frontend POSTs the file to `POST /scan`
-3. Backend saves the file and runs Slither on it
-4. Slither findings are parsed and mapped to structured rules
-5. Risk score is computed (severity × confidence weighting)
-6. Foundry exploit simulation runs in parallel
-7. JSON report is saved and returned to the frontend
-8. Frontend renders the risk gauge, severity breakdown, and finding cards
-9. User can export the full report as PDF
+1. User uploads a `.sol` file via the drag & drop frontend
+2. Frontend POSTs the file to `POST /scan` via `/api/scan` proxy
+3. Backend saves the file to a temp directory and runs Slither
+4. Slither findings are parsed and mapped to structured rules via `rules.py`
+5. Findings are **deduplicated by rule ID** — multiple occurrences collapsed into one, highest impact kept
+6. Risk score computed using severity × confidence weighting, capped at 100
+7. Foundry exploit simulation runs in parallel
+8. JSON report saved and returned to the frontend
+9. Frontend renders animated risk gauge, severity breakdown, and expandable finding cards
+10. User can export the full report as a dark-themed PDF
 
 ---
 
@@ -122,8 +138,8 @@ Accepts a Solidity file upload, returns a JSON audit report.
   "scan_id": "uuid",
   "target": "path/to/contract.sol",
   "generated": "2026-03-17T18:23:49Z",
-  "risk_score": 86,
-  "total_findings": 8,
+  "risk_score": 77,
+  "total_findings": 6,
   "findings": [
     {
       "title": "Reentrancy",
@@ -131,8 +147,9 @@ Accepts a Solidity file upload, returns a JSON audit report.
       "description": "...",
       "fix": "...",
       "check": "reentrancy-no-eth",
-      "impact": "High",
-      "confidence": "Medium"
+      "impact": "Medium",
+      "confidence": "Medium",
+      "occurrences": 7
     }
   ],
   "exploit_simulation": {
@@ -149,7 +166,7 @@ Accepts a Solidity file upload, returns a JSON audit report.
 
 | Slither Detector | Severity | Rule |
 |-----------------|----------|------|
-| reentrancy-eth / no-eth / benign | CRITICAL | Reentrancy |
+| reentrancy-eth / no-eth / benign / events | CRITICAL | Reentrancy |
 | controlled-delegatecall | CRITICAL | Controlled Delegatecall |
 | unchecked-transfer | HIGH | Unchecked Token Transfer |
 | arbitrary-send-eth | HIGH | Arbitrary ETH Send |
@@ -166,7 +183,6 @@ Accepts a Solidity file upload, returns a JSON audit report.
 ---
 
 ## Risk Scoring
-
 ```
 score = Σ (severity_base × confidence_weight) × 0.7
 ```
@@ -184,16 +200,18 @@ score = Σ (severity_base × confidence_weight) × 0.7
 | Medium | 0.7 |
 | Low | 0.4 |
 
-Final score is capped at 100.
+Final score is capped at 100. Findings are deduplicated by rule ID — multiple Slither detectors mapping to the same rule are collapsed into one finding, keeping the highest impact instance and tracking occurrence count.
 
 ---
 
-## Roadmap
+## Deployment
 
-- [ ] Deduplicate findings by rule ID, keep highest impact
-- [ ] Auth + scan history (Supabase)
-- [ ] Dockerize full stack
-- [ ] Deploy: Vercel (frontend) + Railway (backend)
-- [ ] GitHub Actions CI — auto-scan on push
-- [ ] Multi-contract / repo scanning
-- [ ] CVSS-style scoring refinement
+| Service | Platform | URL |
+|---------|----------|-----|
+| Frontend | Vercel | chainaudit.vercel.app |
+| Backend | Railway | smart-contract-auditor-production.up.railway.app |
+
+Both services auto-deploy on every push to `main`. GitHub Actions runs a type check and full frontend build as a CI gate before deployment triggers.
+
+---
+
