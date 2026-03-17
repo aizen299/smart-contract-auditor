@@ -1,7 +1,29 @@
-.venv/
+
+# Python
 __pycache__/
 *.pyc
-reports/*.json
-reports/*.html
-reports/slither.json
-.solc-select/
+*.pyo
+.venv/
+*.egg-info/
+dist/
+
+# Backend
+backend/tmp_scans/
+backend/reports/
+backend/slither.json
+.env
+.env.local
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/.env.local
+
+# Solidity
+*.bin
+*.abi
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
