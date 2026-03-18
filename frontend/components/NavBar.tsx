@@ -13,21 +13,23 @@ interface NavBarProps {
 export function NavBar({ onReset }: NavBarProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
 
-  useEffect(() => {
-    const supabase = createClient();
+useEffect(() => {
+  const supabase = createClient();
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    setUser(session?.user ?? null);
+  });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (event, session) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "TOKEN_REFRESHED") {
         setUser(session?.user ?? null);
       }
-    );
+    }
+  );
 
-    return () => subscription.unsubscribe();
-  }, []);
+  return () => subscription.unsubscribe();
+}, []);
 
   const handleSignOut = async () => {
     const supabase = createClient();
