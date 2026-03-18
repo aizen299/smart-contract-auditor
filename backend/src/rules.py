@@ -252,7 +252,7 @@ RULES: Dict[str, Rule] = {
         cvss=CvssFactors(
             attack_vector="network", attack_complexity="low",
             privileges_required="none", user_interaction="none",
-            confidentiality="none", integrity="none", availability="none",
+            confidentiality="none", integrity="low", availability="none",
         )
     ),
     "events-maths": Rule(
@@ -264,7 +264,7 @@ RULES: Dict[str, Rule] = {
         cvss=CvssFactors(
             attack_vector="network", attack_complexity="low",
             privileges_required="none", user_interaction="none",
-            confidentiality="none", integrity="none", availability="none",
+            confidentiality="none", integrity="low", availability="none",
         )
     ),
     "naming-convention": Rule(
@@ -276,7 +276,7 @@ RULES: Dict[str, Rule] = {
         cvss=CvssFactors(
             attack_vector="local", attack_complexity="low",
             privileges_required="none", user_interaction="none",
-            confidentiality="none", integrity="none", availability="none",
+            confidentiality="none", integrity="low", availability="none",
         )
     ),
 }
@@ -371,23 +371,20 @@ def compute_risk_score(findings: list[dict]) -> int:
     for f in findings:
         rule_id = f.get("check", "")
         rule = map_finding(rule_id)
-
-        # CVSS base score (0-10)
         cvss_score = cvss_base_score(rule.cvss)
-
-        # Confidence weight from Slither
         conf = f.get("confidence", "Medium")
         conf_weight = CONFIDENCE_WEIGHT.get(conf, 0.7)
-
-        # Severity multiplier ensures severity label aligns with score
         sev = f.get("severity", "LOW").upper()
         sev_mult = SEVERITY_MULTIPLIER.get(sev, 1.5)
-
-        # Final per-finding score
         finding_score = cvss_score * conf_weight * sev_mult
         total += finding_score
 
-    # Normalize to 0-100 with logarithmic dampening to prevent explosion
     import math
     normalized = 100 * (1 - math.exp(-total / 80))
-    return min(int(normalized), 100)
+    final = int(normalized)
+
+    # Minimum score of 5 if there are any findings
+    if findings and final == 0:
+        final = 5
+
+    return min(final, 100)
