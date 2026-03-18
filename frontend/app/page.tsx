@@ -5,6 +5,7 @@ import { UploadZone } from "@/components/UploadZone";
 import { ScanResults } from "@/components/ScanResults";
 import { ScanLoader } from "@/components/ScanLoader";
 import { NavBar } from "@/components/NavBar";
+import { createClient } from "@/lib/supabase";
 import type { ScanResult } from "@/types";
 
 type Stage = "idle" | "scanning" | "results" | "error";
@@ -32,14 +33,33 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        // API returned an error (400, 422, 408, 500)
         setErrorMessage(data.detail || "An unexpected error occurred. Please try again.");
         setStage("error");
         return;
       }
 
-      setResult(data as ScanResult);
+      const scanResult = data as ScanResult;
+      setResult(scanResult);
       setStage("results");
+
+      // Save to Supabase if user is logged in
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("scans").insert({
+            user_id: user.id,
+            file_name: file.name,
+            risk_score: scanResult.risk_score,
+            total_findings: scanResult.findings.length,
+            findings: scanResult.findings,
+          });
+        }
+      } catch {
+        // Silently fail — scan still works without saving
+        console.error("Failed to save scan to history");
+      }
+
     } catch {
       setErrorMessage("Could not connect to the scan server. Make sure the backend is running.");
       setStage("error");
