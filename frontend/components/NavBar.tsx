@@ -13,23 +13,23 @@ interface NavBarProps {
 export function NavBar({ onReset }: NavBarProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
 
-useEffect(() => {
-  const supabase = createClient();
+  useEffect(() => {
+    const supabase = createClient();
 
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setUser(session?.user ?? null);
-  });
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
 
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (event, session) => {
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "TOKEN_REFRESHED") {
-        setUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "TOKEN_REFRESHED") {
+          setUser(session?.user ?? null);
+        }
       }
-    }
-  );
+    );
 
-  return () => subscription.unsubscribe();
-}, []);
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSignOut = async () => {
     const supabase = createClient();
@@ -40,7 +40,8 @@ useEffect(() => {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#080b10]/80 backdrop-blur-xl">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
+
+        <Link href="/" className="flex items-center gap-2.5">
           <div className="relative">
             <div className="absolute inset-0 rounded-lg bg-[#00ff88]/20 blur-sm" />
             <div className="relative w-7 h-7 rounded-lg bg-gradient-to-br from-[#00ff88]/30 to-[#00d4ff]/20 border border-[#00ff88]/30 flex items-center justify-center">
@@ -53,7 +54,7 @@ useEffect(() => {
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20 font-semibold tracking-wider">
             BETA
           </span>
-        </div>
+        </Link>
 
         <div className="flex items-center gap-4">
           {onReset && (
