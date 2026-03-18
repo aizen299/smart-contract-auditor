@@ -14,13 +14,21 @@ export function NavBar({ onReset }: NavBarProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const supabase = createClient();
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+useEffect(() => {
+  // Get initial session
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    setUser(session?.user ?? null);
+  });
+
+  // Listen for auth changes
+  const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    (event, session) => {
       setUser(session?.user ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+    }
+  );
+
+  return () => subscription.unsubscribe();
+}, []);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
