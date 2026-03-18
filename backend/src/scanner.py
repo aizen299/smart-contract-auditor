@@ -19,13 +19,18 @@ def run_slither(target: str) -> bool:
     cmd = ["slither", target, "--json", str(SLITHER_JSON)]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
 
-    # Slither returns exit code 1 when it finds issues (normal)
-    # It returns exit code 2+ on compilation failure
-    if result.returncode > 1:
+    if not SLITHER_JSON.exists():
         return False
 
-    return SLITHER_JSON.exists()
+    try:
+        data = json.loads(SLITHER_JSON.read_text())
+        
+        if not data.get("success", True) and not data.get("results", {}).get("detectors"):
+            return False
+    except json.JSONDecodeError:
+        return False
 
+    return True
 
 def parse_slither_report() -> list:
     if not SLITHER_JSON.exists():

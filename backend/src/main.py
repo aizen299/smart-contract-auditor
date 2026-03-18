@@ -4,9 +4,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from rich.console import Console
-from rich.table import Table
-
 from src.scanner import run_slither, parse_slither_report
 from src.exploit_simulator import run_foundry_tests
 from src.rules import compute_risk_score
@@ -15,15 +12,11 @@ from src.report_gen import save_json, save_html
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
 
-console = Console()
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
-
     parser.add_argument("--target", required=True)
     parser.add_argument("--scan-id", required=False)
-
     return parser.parse_args()
 
 
@@ -32,17 +25,19 @@ def main():
     target = Path(args.target)
 
     if not target.exists():
-        print("Invalid target")
+        print("Invalid target", file=sys.stderr)
         sys.exit(1)
 
     scan_id = args.scan_id or str(uuid.uuid4())
 
-    run_slither(str(target))
+    slither_ok = run_slither(str(target))
+
+    if not slither_ok:
+        print("Slither failed to analyse contract — possible syntax error or unsupported pragma", file=sys.stderr)
+        sys.exit(2)
 
     findings = parse_slither_report()
-
     risk_score = compute_risk_score(findings)
-
     sim = run_foundry_tests(verbose=True)
 
     report = {
