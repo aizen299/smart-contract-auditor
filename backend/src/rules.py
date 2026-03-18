@@ -120,12 +120,31 @@ RULES: Dict[str, Rule] = {
         description="Functions that change critical numeric state (rates, limits) emit no events.",
         fix="Add events for all state-changing math operations like setRewardRate()."
     ),
+    "deprecated-standards": Rule(
+    id="deprecated-standards",
+    title="Deprecated Solidity Standards",
+    severity="MEDIUM",
+    description="Contract uses deprecated Solidity features like throw, suicide, or block.blockhash which have been replaced by revert, selfdestruct, and blockhash.",
+    fix="Replace deprecated functions with their modern equivalents: throw → revert, suicide → selfdestruct, block.blockhash → blockhash."
+),
+    "naming-convention": Rule(
+    id="naming-convention",
+    title="Naming Convention Violation",
+    severity="LOW",
+    description="Contract does not follow Solidity naming conventions. Variables, functions, or contracts use inconsistent casing.",
+    fix="Follow Solidity style guide: contracts in PascalCase, functions and variables in camelCase, constants in UPPER_CASE."
+),
+    "reentrancy-unlimited-gas": Rule(
+    id="reentrancy-unlimited-gas",
+    title="Reentrancy with Unlimited Gas",
+    severity="CRITICAL",
+    description="External call forwards unlimited gas, allowing a malicious contract to re-enter and execute complex logic during the call.",
+    fix="Use transfer() or send() which forward only 2300 gas, or add a reentrancy guard and follow the CEI pattern."
+),
 }
 
 
-# =========================
-# SLITHER → RULE MAPPING
-# =========================
+
 SLITHER_TO_RULE = {
     # Core reentrancy
     "reentrancy": "reentrancy",
@@ -167,12 +186,13 @@ SLITHER_TO_RULE = {
     # Events
     "events-access": "events-access",
     "events-maths": "events-maths",
+    "deprecated-standards": "deprecated-standards",
+    "naming-convention": "naming-convention",
+    "reentrancy-unlimited-gas": "reentrancy-unlimited-gas",
 }
 
 
-# =========================
-# SCORING ENGINE
-# =========================
+
 SEVERITY_SCORES = {
     "CRITICAL": 40,
     "HIGH": 25,
@@ -187,9 +207,7 @@ CONFIDENCE_WEIGHT = {
 }
 
 
-# =========================
-# DEFAULT FALLBACK
-# =========================
+
 DEFAULT_RULE = Rule(
     id="unknown",
     title="Unclassified Vulnerability",
@@ -206,11 +224,11 @@ def normalize_check(check: str) -> str:
 def map_finding(check: str) -> Rule:
     check = normalize_check(check)
 
-    # 1. Exact match
+   
     if check in SLITHER_TO_RULE:
         return RULES.get(SLITHER_TO_RULE[check], DEFAULT_RULE)
 
-    # 2. Fuzzy match
+    
     for key in SLITHER_TO_RULE:
         if key in check:
             return RULES.get(SLITHER_TO_RULE[key], DEFAULT_RULE)
