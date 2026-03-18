@@ -1,7 +1,8 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { UploadZone } from "@/components/UploadZone";
 import { ScanResults } from "@/components/ScanResults";
 import { ScanLoader } from "@/components/ScanLoader";
@@ -16,6 +17,8 @@ export default function Home() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const router = useRouter();
+
 
   const handleScan = async (file: File) => {
     setFileName(file.name);
