@@ -12,25 +12,25 @@ interface NavBarProps {
 
 export function NavBar({ onReset }: NavBarProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
-  const supabase = createClient();
 
-useEffect(() => {
-  // Get initial session
-  supabase.auth.getSession().then(({ data: { session } }) => {
-    setUser(session?.user ?? null);
-  });
+  useEffect(() => {
+    const supabase = createClient();
 
-  // Listen for auth changes
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(
-    (event, session) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-    }
-  );
+    });
 
-  return () => subscription.unsubscribe();
-}, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setUser(session?.user ?? null);
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const handleSignOut = async () => {
+    const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
   };
