@@ -1,28 +1,33 @@
 import json
 import subprocess
 from pathlib import Path
-
 from src.rules import map_finding
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
 SLITHER_JSON = REPORTS_DIR / "slither.json"
 
-# Impact priority — higher index = higher priority
 IMPACT_ORDER = {"High": 3, "Medium": 2, "Low": 1, "Informational": 0}
 
 
-def run_slither(target: str):
+def run_slither(target: str) -> bool:
     REPORTS_DIR.mkdir(exist_ok=True)
 
     if SLITHER_JSON.exists():
         SLITHER_JSON.unlink()
 
     cmd = ["slither", target, "--json", str(SLITHER_JSON)]
-    subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+
+    # Slither returns exit code 1 when it finds issues (normal)
+    # It returns exit code 2+ on compilation failure
+    if result.returncode > 1:
+        return False
+
+    return SLITHER_JSON.exists()
 
 
-def parse_slither_report():
+def parse_slither_report() -> list:
     if not SLITHER_JSON.exists():
         return []
 
@@ -31,13 +36,12 @@ def parse_slither_report():
     except json.JSONDecodeError:
         return []
 
+    # Check if Slither reported a compilation error
+    if not data.get("success", True):
+        return []
+
     detectors = data.get("results", {}).get("detectors", [])
 
-    # -------------------------------------------------------------------
-    # Step 1: Map every raw detector to a rule, collect all occurrences
-    # grouped by rule ID so we can deduplicate intelligently.
-    # -------------------------------------------------------------------
-    # rule_id → best raw detector entry seen so far
     best: dict[str, dict] = {}
 
     for d in detectors:
@@ -47,7 +51,6 @@ def parse_slither_report():
 
         rule = map_finding(check)
 
-        # Skip truly unknown/unclassified checks (solc-version noise etc.)
         if rule.id == "unknown":
             continue
 
@@ -66,8 +69,6 @@ def parse_slither_report():
         else:
             existing = best[rule.id]
             existing["occurrences"] += 1
-
-            # Keep the entry with the highest impact
             if impact_score > existing["impact_score"]:
                 existing.update({
                     "check": check,
@@ -76,9 +77,6 @@ def parse_slither_report():
                     "confidence": d.get("confidence", "Medium"),
                 })
 
-    # -------------------------------------------------------------------
-    # Step 2: Build the final findings list, sorted by severity
-    # -------------------------------------------------------------------
     SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
     findings = []
@@ -96,5 +94,4 @@ def parse_slither_report():
         })
 
     findings.sort(key=lambda f: SEVERITY_ORDER.get(f["severity"], 99))
-
     return findings
