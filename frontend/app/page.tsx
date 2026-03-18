@@ -7,16 +7,18 @@ import { ScanLoader } from "@/components/ScanLoader";
 import { NavBar } from "@/components/NavBar";
 import type { ScanResult } from "@/types";
 
-type Stage = "idle" | "scanning" | "results";
+type Stage = "idle" | "scanning" | "results" | "error";
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("idle");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   const handleScan = async (file: File) => {
     setFileName(file.name);
     setStage("scanning");
+    setErrorMessage("");
 
     const formData = new FormData();
     formData.append("file", file);
@@ -26,14 +28,21 @@ export default function Home() {
         method: "POST",
         body: formData,
       });
-      const data: ScanResult = await res.json();
-      setResult(data);
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        // API returned an error (400, 422, 408, 500)
+        setErrorMessage(data.detail || "An unexpected error occurred. Please try again.");
+        setStage("error");
+        return;
+      }
+
+      setResult(data as ScanResult);
       setStage("results");
     } catch {
-      // Demo fallback — remove in production
-      await new Promise((r) => setTimeout(r, 3200));
-      setResult(DEMO_RESULT);
-      setStage("results");
+      setErrorMessage("Could not connect to the scan server. Make sure the backend is running.");
+      setStage("error");
     }
   };
 
@@ -41,6 +50,7 @@ export default function Home() {
     setStage("idle");
     setResult(null);
     setFileName("");
+    setErrorMessage("");
   };
 
   return (
@@ -53,48 +63,28 @@ export default function Home() {
         {stage === "results" && result && (
           <ScanResults result={result} fileName={fileName} onRescan={handleReset} />
         )}
+        {stage === "error" && (
+          <div className="min-h-screen flex flex-col items-center justify-center px-6 pt-14">
+            <div className="w-full max-w-md">
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+                <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-5 h-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-white/80 mb-2">Scan Failed</p>
+                <p className="text-xs text-white/40 leading-relaxed mb-6">{errorMessage}</p>
+                <button
+                  onClick={handleReset}
+                  className="px-6 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white/70 hover:bg-white/[0.09] hover:text-white/90 transition-all"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
 }
-
-const DEMO_RESULT: ScanResult = {
-  risk_score: 78,
-  findings: [
-    {
-      title: "Reentrancy Vulnerability",
-      severity: "CRITICAL",
-      description:
-        "The withdraw() function updates the balance after transferring ETH, allowing a malicious contract to re-enter before state is updated. This can drain all contract funds.",
-      fix: "Apply the Checks-Effects-Interactions pattern. Update internal state (balances[msg.sender] = 0) before making any external call.",
-    },
-    {
-      title: "Integer Overflow in Token Minting",
-      severity: "HIGH",
-      description:
-        "totalSupply += amount on line 84 is unchecked. If amount is crafted to overflow, totalSupply wraps to a small value, breaking accounting invariants.",
-      fix: "Use Solidity 0.8.x built-in overflow checks, or wrap arithmetic in OpenZeppelin's SafeMath library.",
-    },
-    {
-      title: "Unprotected Self-Destruct",
-      severity: "HIGH",
-      description:
-        "selfdestruct(owner) can be called by anyone due to missing access control on the destroy() function. Attacker can permanently disable the contract.",
-      fix: "Add onlyOwner modifier to the destroy() function. Consider removing selfdestruct entirely per EIP-6049 deprecation.",
-    },
-    {
-      title: "Centralized Oracle Dependency",
-      severity: "MEDIUM",
-      description:
-        "Price data relies on a single EOA-controlled oracle. This creates a single point of failure and manipulation risk.",
-      fix: "Integrate a decentralized oracle like Chainlink with multiple data sources and heartbeat validation.",
-    },
-    {
-      title: "Missing Event Emissions",
-      severity: "LOW",
-      description:
-        "State-changing functions setOwner() and updateFee() do not emit events, making off-chain monitoring and audit trails impossible.",
-      fix: "Define and emit appropriate events for all critical state changes.",
-    },
-  ],
-};
