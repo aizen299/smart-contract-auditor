@@ -164,9 +164,9 @@ score = Σ (severity_base × confidence_weight) × 0.7
 ```  
 
 ## ML Capabilities
-	```
+```
   •	Predicts exploitability likelihood
 	•	Provides confidence score
 	•	Enhances prioritization of vulnerabilities
 	•	Integrated directly into scan pipeline
-  ```
+```
