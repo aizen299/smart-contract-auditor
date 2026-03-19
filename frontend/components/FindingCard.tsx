@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Wrench } from "lucide-react";
+import { ChevronDown, Wrench, Brain } from "lucide-react";
 import { SeverityBadge } from "./SeverityBadge";
 import type { Finding } from "@/types";
 
@@ -10,30 +10,45 @@ interface FindingCardProps {
   index: number;
 }
 
+function MLBadge({ exploitability, confidence }: { exploitability: string; confidence: number }) {
+  const colorMap: Record<string, string> = {
+    CRITICAL: "text-red-400 bg-red-500/10 border-red-500/20",
+    HIGH: "text-orange-400 bg-orange-500/10 border-orange-500/20",
+    MEDIUM: "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
+    LOW: "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  };
+
+  const colors = colorMap[exploitability] || "text-white/30 bg-white/5 border-white/10";
+  const pct = Math.round(confidence * 100);
+
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-semibold tracking-wide ${colors}`}>
+      <Brain className="w-2.5 h-2.5" />
+      ML: {exploitability} · {pct}%
+    </div>
+  );
+}
+
 export function FindingCard({ finding, index }: FindingCardProps) {
   const [expanded, setExpanded] = useState(false);
 
+  const hasML = (finding as any).ml_exploitability && (finding as any).ml_exploitability !== "unknown";
+
   return (
     <div
-      className={`group rounded-2xl border transition-all duration-300 overflow-hidden
-        border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.035] hover:border-white/[0.12]
-      `}
+      className="group rounded-2xl border transition-all duration-300 overflow-hidden border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.035] hover:border-white/[0.12]"
       style={{ animationDelay: `${index * 80}ms` }}
     >
-      {/* Header row */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-4 px-5 py-4 text-left"
       >
-        {/* Index */}
         <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-white/[0.05] border border-white/[0.07] flex items-center justify-center text-[10px] font-semibold text-white/30 font-mono">
           {String(index + 1).padStart(2, "0")}
         </span>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-white/90">{finding.title}</span>
-          </div>
+          <span className="text-sm font-medium text-white/90">{finding.title}</span>
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -44,13 +59,26 @@ export function FindingCard({ finding, index }: FindingCardProps) {
         </div>
       </button>
 
-      {/* Expanded content */}
       <div
         className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          expanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          expanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
         <div className="px-5 pb-5 space-y-4 border-t border-white/[0.05] pt-4">
+
+          {/* ML Prediction */}
+          {hasML && (
+            <div className="flex items-center gap-2">
+              <MLBadge
+                exploitability={(finding as any).ml_exploitability}
+                confidence={(finding as any).ml_confidence}
+              />
+              <span className="text-[10px] text-white/25">
+                ML-predicted exploitability
+              </span>
+            </div>
+          )}
+
           {/* Description */}
           <div>
             <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2 font-semibold">
