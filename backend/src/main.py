@@ -33,12 +33,23 @@ def main():
     slither_ok = run_slither(str(target))
 
     if not slither_ok:
-        print("Slither failed to analyse contract — possible syntax error or unsupported pragma", file=sys.stderr)
+        print("Slither failed to analyse contract", file=sys.stderr)
         sys.exit(2)
 
     findings = parse_slither_report()
     risk_score = compute_risk_score(findings)
     sim = run_foundry_tests(verbose=True)
+
+    # Add ML exploitability predictions
+    try:
+        from ml.predictor import predictor
+        contract_size = len(target.read_text(errors="ignore"))
+        for finding in findings:
+            ml_result = predictor.predict(finding, contract_size)
+            finding["ml_exploitability"] = ml_result["exploitability"]
+            finding["ml_confidence"] = ml_result["confidence"]
+    except Exception:
+        pass  # ML is optional — scan still works without it
 
     report = {
         "scan_id": scan_id,
