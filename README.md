@@ -15,44 +15,6 @@ A full-stack smart contract auditing platform. Upload a Solidity file, get a rea
 
 ---
 
-## Project Structure
-
-```
-smart-contract-auditor/
-├── frontend/                  # Next.js app
-│   ├── app/
-│   │   ├── page.tsx           # Main page (upload → scan → results)
-│   │   ├── layout.tsx
-│   │   └── globals.css
-│   ├── components/
-│   │   ├── NavBar.tsx
-│   │   ├── UploadZone.tsx     # Drag & drop file upload
-│   │   ├── ScanLoader.tsx     # Animated scan progress
-│   │   ├── ScanResults.tsx    # Results page + PDF export
-│   │   ├── FindingCard.tsx    # Expandable finding card
-│   │   ├── SeverityBadge.tsx  # CRITICAL / HIGH / MEDIUM / LOW badge
-│   │   └── RiskScore.tsx      # Animated circular gauge
-│   ├── types/
-│   │   └── index.ts
-│   └── package.json
-│
-├── backend/                   # FastAPI server
-│   ├── api.py                 # POST /scan endpoint
-│   ├── src/
-│   │   ├── main.py            # CLI entrypoint
-│   │   ├── scanner.py         # Slither runner + report parser
-│   │   ├── rules.py           # Vulnerability rules + scoring engine
-│   │   ├── report_gen.py      # JSON + HTML report writer
-│   │   └── exploit_simulator.py  # Foundry test runner
-│   ├── reports/               # Generated scan reports (gitignored)
-│   ├── requirements.txt
-│   └── .env
-│
-└── README.md
-```
-
----
-
 ## Getting Started
 
 ### Prerequisites
@@ -96,23 +58,32 @@ Frontend runs at `http://localhost:3000`.
 
 ## How It Works
 
-1. User uploads a `.sol` file via the frontend
-2. Frontend POSTs the file to `POST /scan`
-3. Backend saves the file and runs Slither on it
-4. Slither findings are parsed and mapped to structured rules
-5. Risk score is computed (severity × confidence weighting)
-6. Foundry exploit simulation runs in parallel
-7. JSON report is saved and returned to the frontend
-8. Frontend renders the risk gauge, severity breakdown, and finding cards
-9. User can export the full report as PDF
-
+1. User uploads a `.sol` file or a `.zip` archive containing Solidity contracts via the frontend  
+2. Frontend sends the file to `POST /scan`  
+3. Backend extracts files (if ZIP) and detects Solidity versions from pragma statements  
+4. `solc-select` automatically switches to the required compiler version per contract  
+5. Slither runs static analysis on the contracts  
+6. Raw Slither output is parsed and mapped to structured vulnerability rules  
+7. Risk score is computed using severity × confidence weighting  
+8. Extracted features are passed into the ML model (Random Forest)  
+9. ML model predicts exploitability and assigns a confidence score  
+10. Foundry executes exploit simulations in parallel to validate vulnerabilities  
+11. All results (static findings + ML predictions + simulation output) are aggregated  
+12. Final JSON report is generated and stored  
+13. Frontend renders:
+    - Risk score gauge  
+    - Severity distribution  
+    - Detailed findings  
+    - ML exploitability badge  
+    - Simulation results  
+14. User can export a complete audit report as PDF  
 ---
 
 ## API
 
 ### `POST /scan`
 
-Accepts a Solidity file upload, returns a JSON audit report.
+Accepts a Solidity file upload as well as a zip compressed of solidity files returns a JSON audit report.
 
 **Request:** `multipart/form-data` with a `.sol` file field named `file`
 
@@ -184,5 +155,18 @@ score = Σ (severity_base × confidence_weight) × 0.7
 | Medium | 0.7 |
 | Low | 0.4 |
 
-Final score is capped at 100.
+## Machine Learning Pipeline
+```
+	•	Dataset: SmartBugs (143 contracts, 10 vulnerability classes)
+	•	Feature Extraction: Slither JSON outputs
+	•	Model: Random Forest Classifier
+	•	Accuracy: 88%
+```  
 
+## ML Capabilities
+	```
+  •	Predicts exploitability likelihood
+	•	Provides confidence score
+	•	Enhances prioritization of vulnerabilities
+	•	Integrated directly into scan pipeline
+  ```
