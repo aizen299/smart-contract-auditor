@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Upload, FileCode, Zap, Lock, Eye } from "lucide-react";
+import { Upload, FileCode, FileArchive, Zap, Lock, Eye } from "lucide-react";
 
 interface UploadZoneProps {
   onScan: (file: File) => void;
@@ -12,11 +12,15 @@ export function UploadZone({ onScan }: UploadZoneProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const isZip = selectedFile?.name.endsWith(".zip");
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file?.name.endsWith(".sol")) setSelectedFile(file);
+    if (file?.name.endsWith(".sol") || file?.name.endsWith(".zip")) {
+      setSelectedFile(file);
+    }
   }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -66,8 +70,9 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         </h1>
 
         <p className="text-white/40 text-base leading-relaxed max-w-lg mx-auto">
-          Upload your Solidity file. Get a comprehensive security report with
-          risk scores, severity ratings, and actionable fix recommendations.
+          Upload a single Solidity file or a zip of multiple contracts. Get a
+          comprehensive security report with risk scores, severity ratings, and
+          actionable fix recommendations.
         </p>
       </div>
 
@@ -90,7 +95,7 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept=".sol"
+          accept=".sol,.zip"
           onChange={handleFileChange}
           className="hidden"
         />
@@ -99,14 +104,22 @@ export function UploadZone({ onScan }: UploadZoneProps) {
           {selectedFile ? (
             <div className="flex flex-col items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-[#00ff88]/10 border border-[#00ff88]/20 flex items-center justify-center">
-                <FileCode className="w-5 h-5 text-[#00ff88]" />
+                {isZip
+                  ? <FileArchive className="w-5 h-5 text-[#00ff88]" />
+                  : <FileCode className="w-5 h-5 text-[#00ff88]" />
+                }
               </div>
               <div>
                 <p className="text-white font-medium text-sm">{selectedFile.name}</p>
                 <p className="text-white/30 text-xs mt-1">
-                  {(selectedFile.size / 1024).toFixed(1)} KB · Solidity
+                  {(selectedFile.size / 1024).toFixed(1)} KB · {isZip ? "Multi-contract zip" : "Solidity"}
                 </p>
               </div>
+              {isZip && (
+                <div className="px-3 py-1 rounded-full bg-[#00d4ff]/10 border border-[#00d4ff]/20 text-[10px] text-[#00d4ff] tracking-widest uppercase">
+                  Multi-contract scan
+                </div>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }}
                 className="text-[11px] text-white/30 hover:text-white/60 underline underline-offset-2 transition-colors"
@@ -121,12 +134,18 @@ export function UploadZone({ onScan }: UploadZoneProps) {
               </div>
               <div>
                 <p className="text-white/70 text-sm font-medium">
-                  Drop your <span className="text-[#00ff88]">.sol</span> file here
+                  Drop your <span className="text-[#00ff88]">.sol</span> or <span className="text-[#00d4ff]">.zip</span> file here
                 </p>
                 <p className="text-white/30 text-xs mt-1">or click to browse</p>
               </div>
-              <div className="text-[10px] tracking-widest uppercase text-white/20 border border-white/10 rounded-full px-3 py-1">
-                Solidity files only
+              <div className="flex items-center gap-2">
+                <div className="text-[10px] tracking-widest uppercase text-white/20 border border-white/10 rounded-full px-3 py-1">
+                  Single .sol
+                </div>
+                <span className="text-white/20 text-xs">or</span>
+                <div className="text-[10px] tracking-widest uppercase text-white/20 border border-white/10 rounded-full px-3 py-1">
+                  Multi-contract .zip
+                </div>
               </div>
             </div>
           )}
@@ -149,7 +168,12 @@ export function UploadZone({ onScan }: UploadZoneProps) {
             }
           `}
         >
-          {selectedFile ? "→ Scan Contract" : "Select a File to Continue"}
+          {selectedFile
+            ? isZip
+              ? `→ Scan ${selectedFile.name}`
+              : "→ Scan Contract"
+            : "Select a File to Continue"
+          }
         </button>
       </div>
 
@@ -158,7 +182,7 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         {[
           { icon: Zap, label: "< 30s Analysis" },
           { icon: Lock, label: "Never Stored" },
-          { icon: Eye, label: "15+ Vulnerability Classes" },
+          { icon: Eye, label: "16+ Vulnerability Classes" },
         ].map(({ icon: Icon, label }) => (
           <div
             key={label}

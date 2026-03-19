@@ -1,24 +1,30 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { UploadZone } from "@/components/UploadZone";
 import { ScanResults } from "@/components/ScanResults";
+import { MultiScanResults } from "@/components/MultiScanResults";
 import { ScanLoader } from "@/components/ScanLoader";
 import { NavBar } from "@/components/NavBar";
 import { createClient } from "@/lib/supabase";
 import type { ScanResult } from "@/types";
 
-type Stage = "idle" | "scanning" | "results" | "error";
+type Stage = "idle" | "scanning" | "results" | "multi-results" | "error";
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("idle");
   const [result, setResult] = useState<ScanResult | null>(null);
+  const [multiResult, setMultiResult] = useState<any | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const router = useRouter();
 
+  useEffect(() => {
+    router.refresh();
+  }, []);
 
   const handleScan = async (file: File) => {
     setFileName(file.name);
@@ -28,8 +34,11 @@ export default function Home() {
     const formData = new FormData();
     formData.append("file", file);
 
+    const isZip = file.name.endsWith(".zip");
+    const endpoint = isZip ? "/api/scan/zip" : "/api/scan";
+
     try {
-      const res = await fetch("/api/scan", {
+      const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
       });
@@ -37,31 +46,35 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMessage(data.detail || "An unexpected error occurred. Please try again.");
+        setErrorMessage(data.detail || "An unexpected error occurred.");
         setStage("error");
         return;
       }
 
-      const scanResult = data as ScanResult;
-      setResult(scanResult);
-      setStage("results");
+      if (isZip) {
+        setMultiResult(data);
+        setStage("multi-results");
+      } else {
+        const scanResult = data as ScanResult;
+        setResult(scanResult);
+        setStage("results");
 
-      // Save to Supabase if user is logged in
-      try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("scans").insert({
-            user_id: user.id,
-            file_name: file.name,
-            risk_score: scanResult.risk_score,
-            total_findings: scanResult.findings.length,
-            findings: scanResult.findings,
-          });
+        // Save to Supabase if logged in
+        try {
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from("scans").insert({
+              user_id: user.id,
+              file_name: file.name,
+              risk_score: scanResult.risk_score,
+              total_findings: scanResult.findings.length,
+              findings: scanResult.findings,
+            });
+          }
+        } catch {
+          console.error("Failed to save scan to history");
         }
-      } catch {
-        // Silently fail — scan still works without saving
-        console.error("Failed to save scan to history");
       }
 
     } catch {
@@ -73,6 +86,7 @@ export default function Home() {
   const handleReset = () => {
     setStage("idle");
     setResult(null);
+    setMultiResult(null);
     setFileName("");
     setErrorMessage("");
   };
@@ -86,6 +100,9 @@ export default function Home() {
         {stage === "scanning" && <ScanLoader fileName={fileName} />}
         {stage === "results" && result && (
           <ScanResults result={result} fileName={fileName} onRescan={handleReset} />
+        )}
+        {stage === "multi-results" && multiResult && (
+          <MultiScanResults result={multiResult} fileName={fileName} onRescan={handleReset} />
         )}
         {stage === "error" && (
           <div className="min-h-screen flex flex-col items-center justify-center px-6 pt-14">

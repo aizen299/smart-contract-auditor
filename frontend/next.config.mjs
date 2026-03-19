@@ -4,10 +4,16 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        source: "/api/scan/zip",
+        destination: process.env.NEXT_PUBLIC_API_URL
+          ? `${process.env.NEXT_PUBLIC_API_URL}/scan/zip`
+          : "http://backend:8000/scan/zip",
+      },
+      {
         source: "/api/scan",
         destination: process.env.NEXT_PUBLIC_API_URL
           ? `${process.env.NEXT_PUBLIC_API_URL}/scan`
-          : "http://backend:8000/scan", // to run locally replace backend by localhost
+          : "http://backend:8000/scan",
       },
     ];
   },
