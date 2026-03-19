@@ -27,3 +27,4 @@ frontend/.env.local
 .DS_Store
 Thumbs.db
 docker-compose.yml
+ml/smartbugs/
