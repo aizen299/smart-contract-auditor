@@ -25,8 +25,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_SUPABASE_URL=https://uptcrcbsstjjadekwvrq.supabase.co
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwdGNyY2Jzc3RqamFkZWt3dnJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NDIzNDAsImV4cCI6MjA4OTQxODM0MH0.saKvb4IA3T7O-JyOyrMxMHbt5lA9Fqmxe36xijeLbJ0
+        - NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
         - NEXT_PUBLIC_API_URL=http://backend:8000
     platform: linux/amd64
     container_name: chainaudit-frontend
