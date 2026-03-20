@@ -198,18 +198,3 @@ Each rule has CVSS factors (attack vector, complexity, privileges required, CIA 
 
 ---
 
-## Test Contracts
-
-Sample contracts in `contracts/test/`:
-
-| File | Expected Risk |
-|------|--------------|
-| `01_empty.sol` | 0 — nothing to find |
-| `06_low_risk.sol` | 5–20 — LOW findings only |
-| `05_medium_risk.sol` | 25–50 — MEDIUM findings |
-| `SimpleStaking.sol` | 70–85 — HIGH + CRITICAL |
-| `02_high_risk.sol` | 85–100 — multiple CRITICAL |
-| `test_multi.zip` | multi-contract scan |
-
----
-
