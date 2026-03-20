@@ -1,0 +1,161 @@
+name: "ChainAudit — Smart Contract Security Scanner"
+description: "Scan Solidity smart contracts for vulnerabilities using Slither + ML exploitability prediction"
+author: "ChainAudit"
+
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  target:
+    description: "Path to a .sol file, .zip archive, or directory of contracts"
+    required: true
+    default: "contracts/"
+
+  fail-on-critical:
+    description: "Exit with code 1 if CRITICAL vulnerabilities are found"
+    required: false
+    default: "true"
+
+  output-format:
+    description: "Output format: 'table' (human-readable) or 'json'"
+    required: false
+    default: "table"
+
+  solc-version:
+    description: "Solidity compiler version to use"
+    required: false
+    default: "0.8.24"
+
+outputs:
+  risk-score:
+    description: "Overall risk score (0-100)"
+    value: ${{ steps.scan.outputs.risk_score }}
+
+  total-findings:
+    description: "Total number of findings"
+    value: ${{ steps.scan.outputs.total_findings }}
+
+  critical-count:
+    description: "Number of CRITICAL findings"
+    value: ${{ steps.scan.outputs.critical_count }}
+
+  high-count:
+    description: "Number of HIGH findings"
+    value: ${{ steps.scan.outputs.high_count }}
+
+  report-path:
+    description: "Path to the JSON report artifact"
+    value: ${{ steps.scan.outputs.report_path }}
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq curl git build-essential
+
+    - name: Install solc-select and Slither
+      shell: bash
+      run: |
+        pip install --quiet slither-analyzer solc-select
+        solc-select install ${{ inputs.solc-version }}
+        solc-select use ${{ inputs.solc-version }}
+
+    - name: Install ChainAudit CLI
+      shell: bash
+      working-directory: ${{ github.action_path }}/backend
+      run: |
+        pip install --quiet -r requirements.txt
+        pip install --quiet -e .
+
+    - name: Run ChainAudit scan
+      id: scan
+      shell: bash
+      working-directory: ${{ github.action_path }}/backend
+      run: |
+        TARGET="${{ inputs.target }}"
+
+        # Resolve absolute path
+        if [[ "$TARGET" != /* ]]; then
+          TARGET="${GITHUB_WORKSPACE}/${TARGET}"
+        fi
+
+        echo "Scanning: $TARGET"
+
+        # Run scan and capture JSON output
+        REPORT_PATH="${GITHUB_WORKSPACE}/chainaudit-report.json"
+
+        python -m src.cli scan "$TARGET" --json > "$REPORT_PATH" 2>/dev/null || true
+
+        # Parse report values
+        if [ -f "$REPORT_PATH" ]; then
+          RISK_SCORE=$(python3 -c "import json; d=json.load(open('$REPORT_PATH')); print(d.get('risk_score', d.get('overall_risk_score', 0)))")
+          TOTAL=$(python3 -c "import json; d=json.load(open('$REPORT_PATH')); print(d.get('total_findings', 0))")
+          CRITICAL=$(python3 -c "
+        import json
+        d = json.load(open('$REPORT_PATH'))
+        findings = d.get('findings', []) or sum([f.get('findings',[]) for f in d.get('files',[])], [])
+        print(sum(1 for f in findings if f.get('severity') == 'CRITICAL'))
+          ")
+          HIGH=$(python3 -c "
+        import json
+        d = json.load(open('$REPORT_PATH'))
+        findings = d.get('findings', []) or sum([f.get('findings',[]) for f in d.get('files',[])], [])
+        print(sum(1 for f in findings if f.get('severity') == 'HIGH'))
+          ")
+        else
+          RISK_SCORE=0
+          TOTAL=0
+          CRITICAL=0
+          HIGH=0
+        fi
+
+        echo "risk_score=$RISK_SCORE" >> $GITHUB_OUTPUT
+        echo "total_findings=$TOTAL" >> $GITHUB_OUTPUT
+        echo "critical_count=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high_count=$HIGH" >> $GITHUB_OUTPUT
+        echo "report_path=$REPORT_PATH" >> $GITHUB_OUTPUT
+
+        # Print human-readable summary
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  ChainAudit Security Report"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Risk Score    : $RISK_SCORE / 100"
+        echo "  Total Findings: $TOTAL"
+        echo "  Critical      : $CRITICAL"
+        echo "  High          : $HIGH"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # Also run human-readable output for logs
+        if [ "${{ inputs.output-format }}" = "table" ]; then
+          python -m src.cli scan "$TARGET" 2>/dev/null || true
+        fi
+
+    - name: Upload scan report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: chainaudit-report
+        path: ${{ github.workspace }}/chainaudit-report.json
+        retention-days: 30
+
+    - name: Fail on CRITICAL findings
+      shell: bash
+      if: inputs.fail-on-critical == 'true'
+      run: |
+        CRITICAL=${{ steps.scan.outputs.critical_count }}
+        if [ "$CRITICAL" -gt "0" ]; then
+          echo "CRITICAL vulnerabilities found ($CRITICAL). Blocking deployment."
+          exit 1
+        fi
+        echo "No CRITICAL vulnerabilities found."
