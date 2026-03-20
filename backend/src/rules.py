@@ -597,20 +597,16 @@ L2_INDICATORS = {
 
 
 def detect_l2_chain(source: str) -> str | None:
-    """
-    Detect which L2 chain a contract targets based on imports and identifiers.
-    Returns 'arbitrum', 'optimism', 'l2', or None.
-    """
-    source_upper = source
-    arb_hits = sum(1 for kw in L2_INDICATORS if "Arb" in kw and kw in source_upper)
-    opt_hits = sum(1 for kw in L2_INDICATORS if "Optimism" in kw or "OVM" in kw or "xDomain" in kw and kw in source_upper)
-    generic_hits = sum(1 for kw in L2_INDICATORS if kw in source_upper)
+    arb_hits = sum(1 for kw in L2_INDICATORS if "Arb" in kw and kw in source)
+    opt_hits = sum(1 for kw in L2_INDICATORS if ("Optimism" in kw or "OVM" in kw or "xDomain" in kw) and kw in source)
+    generic_hits = sum(1 for kw in L2_INDICATORS if kw in source)
 
-    if arb_hits > 0:
+    # Require at least 2 hits to avoid false positives on empty/simple contracts
+    if arb_hits >= 2:
         return "arbitrum"
-    if opt_hits > 0:
+    if opt_hits >= 2:
         return "optimism"
-    if generic_hits > 0:
+    if generic_hits >= 2:
         return "l2"
     return None
 

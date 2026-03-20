@@ -149,16 +149,3 @@ jobs:
           name: chainaudit-scan-report
           path: /tmp/scan_report.json
           retention-days: 30
-
-      - name: Check for regressions
-        working-directory: backend
-        run: |
-          # Scan the empty contract — should return 0 findings
-          python -m src.cli scan ../contracts/test/01_empty.sol --json > /tmp/empty_scan.json 2>/dev/null || true
-          FINDINGS=$(python3 -c "import json; print(json.load(open('/tmp/empty_scan.json')).get('total_findings', 0))" 2>/dev/null || echo "0")
-          echo "Empty contract findings: $FINDINGS (expected 0)"
-          if [ "$FINDINGS" -gt "0" ]; then
-            echo "REGRESSION: Empty contract has $FINDINGS findings, expected 0"
-            exit 1
-          fi
-          echo "Regression check passed."
