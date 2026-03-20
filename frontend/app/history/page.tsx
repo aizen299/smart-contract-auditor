@@ -4,8 +4,10 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { NavBar } from "@/components/NavBar";
+import { ScanResults } from "@/components/ScanResults";
 import { useRouter } from "next/navigation";
-import { FileCode, Trash2, ChevronRight } from "lucide-react";
+import { FileCode, Trash2, ArrowLeft } from "lucide-react";
+import type { ScanResult } from "@/types";
 
 interface ScanRecord {
   id: string;
@@ -34,27 +36,22 @@ function getRiskLabel(score: number) {
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   });
 }
 
 export default function HistoryPage() {
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<ScanRecord | null>(null);
   const router = useRouter();
-  const supabase = createClient();
 
   useEffect(() => {
     const fetchScans = async () => {
+      const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      if (!user) { router.push("/login"); return; }
 
       const { data } = await supabase
         .from("scans")
@@ -65,14 +62,49 @@ export default function HistoryPage() {
       setScans(data || []);
       setLoading(false);
     };
-
     fetchScans();
   }, []);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // prevent opening the scan
+    const supabase = createClient();
     await supabase.from("scans").delete().eq("id", id);
     setScans(scans.filter((s) => s.id !== id));
+    if (selected?.id === id) setSelected(null);
   };
+
+  // Show full results for a selected scan
+  if (selected) {
+    const scanResult: ScanResult = {
+      risk_score: selected.risk_score,
+      findings: selected.findings,
+    };
+    return (
+      <div className="min-h-screen bg-[#080b10] text-white font-mono">
+        <NavBar />
+        {/* Back button */}
+        <div className="fixed top-14 left-0 right-0 z-40 border-b border-white/[0.04] bg-[#080b10]/80 backdrop-blur-xl">
+          <div className="max-w-6xl mx-auto px-6 h-10 flex items-center">
+            <button
+              onClick={() => setSelected(null)}
+              className="flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-white/30 hover:text-white/60 transition-colors"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              Back to History
+            </button>
+          </div>
+        </div>
+        {/* Offset for the extra bar */}
+        <div className="pt-10">
+          <ScanResults
+            result={scanResult}
+            fileName={selected.file_name}
+            onRescan={() => setSelected(null)}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#080b10] text-white font-mono">
@@ -112,7 +144,8 @@ export default function HistoryPage() {
             {scans.map((scan) => (
               <div
                 key={scan.id}
-                className="group flex items-center gap-4 px-5 py-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.035] hover:border-white/[0.12] transition-all"
+                onClick={() => setSelected(scan)}
+                className="group flex items-center gap-4 px-5 py-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.15] transition-all cursor-pointer"
               >
                 {/* Risk score */}
                 <div className="flex-shrink-0 text-center w-12">
@@ -124,7 +157,6 @@ export default function HistoryPage() {
                   </p>
                 </div>
 
-                {/* Divider */}
                 <div className="w-px self-stretch bg-white/[0.06]" />
 
                 {/* File info */}
@@ -142,15 +174,13 @@ export default function HistoryPage() {
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => handleDelete(scan.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400 transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {/* Delete — always reserve space so layout doesn't shift */}
+                <button
+                  onClick={(e) => handleDelete(e, scan.id)}
+                  className="flex-shrink-0 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-white/20 hover:text-red-400 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
           </div>
