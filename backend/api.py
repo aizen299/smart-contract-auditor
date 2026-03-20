@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 import subprocess
 import json
@@ -64,6 +64,10 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+@app.head("/health")
+async def health_head():
+    return Response(status_code=200)
 
 
 @app.post("/scan")
