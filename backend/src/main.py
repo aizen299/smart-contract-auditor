@@ -36,7 +36,7 @@ def main():
         print("Slither failed to analyse contract", file=sys.stderr)
         sys.exit(2)
 
-    findings = parse_slither_report()
+    findings = parse_slither_report(target=str(target))
     risk_score = compute_risk_score(findings)
     sim = run_foundry_tests(verbose=True)
 

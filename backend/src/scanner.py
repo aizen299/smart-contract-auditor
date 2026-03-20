@@ -1,7 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
-from src.rules import map_finding
+from src.rules import map_finding, detect_l2_chain, get_l2_rules
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -24,7 +24,6 @@ def run_slither(target: str) -> bool:
 
     try:
         data = json.loads(SLITHER_JSON.read_text())
-        
         if not data.get("success", True) and not data.get("results", {}).get("detectors"):
             return False
     except json.JSONDecodeError:
@@ -32,7 +31,22 @@ def run_slither(target: str) -> bool:
 
     return True
 
-def parse_slither_report() -> list:
+
+def _read_source(target: str) -> str:
+    """Read contract source — handles single file or directory."""
+    path = Path(target)
+    if path.is_file():
+        return path.read_text(errors="ignore")
+    if path.is_dir():
+        # Concatenate all .sol files for pattern matching
+        return "\n".join(
+            f.read_text(errors="ignore")
+            for f in path.rglob("*.sol")
+        )
+    return ""
+
+
+def parse_slither_report(target: str = "") -> list:
     if not SLITHER_JSON.exists():
         return []
 
@@ -41,7 +55,6 @@ def parse_slither_report() -> list:
     except json.JSONDecodeError:
         return []
 
-    # Check if Slither reported a compilation error
     if not data.get("success", True):
         return []
 
@@ -82,12 +95,36 @@ def parse_slither_report() -> list:
                     "confidence": d.get("confidence", "Medium"),
                 })
 
+    # -------------------------------------------------------------------
+    # L2 auto-detection — scan source for L2 identifiers and inject
+    # chain-specific rules that Slither doesn't natively detect
+    # -------------------------------------------------------------------
+    if target:
+        source = _read_source(target)
+        detected_chain = detect_l2_chain(source)
+
+        if detected_chain:
+            l2_rules = get_l2_rules(detected_chain)
+            for rule in l2_rules:
+                # Only inject if Slither didn't already catch it
+                if rule.id not in best:
+                    best[rule.id] = {
+                        "rule": rule,
+                        "check": rule.id,
+                        "impact": "Medium",
+                        "impact_score": IMPACT_ORDER.get("Medium", 2),
+                        "confidence": "Medium",
+                        "occurrences": 1,
+                        "l2_detected": True,
+                        "chain": detected_chain,
+                    }
+
     SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
     findings = []
     for entry in best.values():
         rule = entry["rule"]
-        findings.append({
+        finding = {
             "title": rule.title,
             "severity": rule.severity,
             "description": rule.description,
@@ -96,7 +133,13 @@ def parse_slither_report() -> list:
             "impact": entry["impact"],
             "confidence": entry["confidence"],
             "occurrences": entry["occurrences"],
-        })
+        }
+        # Tag L2 findings so the frontend can show a chain badge
+        if entry.get("l2_detected"):
+            finding["chain"] = entry.get("chain", "l2")
+            finding["l2_detected"] = True
+
+        findings.append(finding)
 
     findings.sort(key=lambda f: SEVERITY_ORDER.get(f["severity"], 99))
     return findings

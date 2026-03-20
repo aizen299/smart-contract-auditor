@@ -188,7 +188,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
                 "total_findings": 0,
             }
 
-        findings = parse_slither_report()
+        findings = parse_slither_report(target=str(sol_file))
         risk_score = compute_risk_score(findings)
 
         contract_size = len(sol_file.read_text(errors="ignore"))
