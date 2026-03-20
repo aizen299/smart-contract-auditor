@@ -41,7 +41,16 @@ export function NavBar({ onReset }: NavBarProps) {
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#080b10]/80 backdrop-blur-xl">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
 
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link
+  href="/"
+  onClick={(e) => {
+    if (onReset) {
+      e.preventDefault();
+      onReset();
+    }
+  }}
+  className="flex items-center gap-2.5"
+>
           <div className="relative">
             <div className="absolute inset-0 rounded-lg bg-[#00ff88]/20 blur-sm" />
             <div className="relative w-7 h-7 rounded-lg bg-gradient-to-br from-[#00ff88]/30 to-[#00d4ff]/20 border border-[#00ff88]/30 flex items-center justify-center">
