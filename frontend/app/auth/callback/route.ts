@@ -6,12 +6,14 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
 
+
+  const safeNext = next.startsWith("/") ? next : "/";
+
   if (code) {
     const supabase = await createServerSupabaseClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      const response = NextResponse.redirect(`${origin}${next}`);
-      // Force no-cache so the page re-renders with fresh session
+      const response = NextResponse.redirect(`${origin}${safeNext}`);
       response.headers.set("Cache-Control", "no-store, max-age=0");
       return response;
     }
