@@ -2,7 +2,6 @@
 
 A full-stack smart contract auditing platform. Upload a Solidity file or a zip of multiple contracts, get a real-time security report with risk scores, severity-ranked findings, ML exploitability predictions, and actionable fixes — powered by Slither static analysis.
 
-**Live → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
 
 ---
 
