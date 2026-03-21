@@ -426,8 +426,16 @@ Examples:
   chainaudit scan contract.sol --ml-only
   chainaudit scan ./contracts --recursive
   chainaudit scan contracts.zip
+
+
         """,
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="%(prog)s 1.0.4",
+    )
+    
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     subparsers.required = True
