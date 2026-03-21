@@ -5,48 +5,48 @@ Smart contract security scanner powered by Slither + ML exploitability predictio
 [![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/aizen299/smart-contract-auditor/blob/main/LICENSE)
 
-> Requires Python 3.11 or 3.12. Python 3.13 not yet supported on Windows.
-
 ---
 
 ## Install
 
+### Mac / Linux / Ubuntu
+
 ```bash
 pip install chainaudit
+pip install slither-analyzer
+pip install solc-select
+solc-select install 0.8.24
+solc-select use 0.8.24
 ```
 
-**Prerequisites:**
-```bash
+### Windows
+
+> Requires Python 3.12. Download from [python.org](https://www.python.org/downloads/release/python-3128/) — check "Add Python to PATH" during install. Python 3.13 not yet supported on Windows.
+
+```powershell
+pip install chainaudit
 pip install slither-analyzer
-pip install solc-select && solc-select install 0.8.24 && solc-select use 0.8.24
+pip install solc-select
+solc-select install 0.8.24
+solc-select use 0.8.24
 ```
+
+> If on a college/office network, use mobile hotspot for installation.
 
 ---
 
 ## Usage
 
 ```bash
-# Single file
-chainaudit scan contract.sol
-
-# Directory
-chainaudit scan ./contracts --recursive
-
-# Zip archive
-chainaudit scan contracts.zip
-
-# JSON output
-chainaudit scan contract.sol --json
-
-# Skip exploit simulation
-chainaudit scan contract.sol --ml-only
+chainaudit scan contract.sol               # single file
+chainaudit scan ./contracts --recursive    # directory
+chainaudit scan contracts.zip              # zip archive
+chainaudit scan contract.sol --json        # JSON output
+chainaudit scan contract.sol --ml-only     # skip simulation
+chainaudit --version                       # show version
 ```
 
-Exit code `1` if CRITICAL vulnerabilities found — use in CI to block deployments:
-
-```bash
-chainaudit scan contracts/ --recursive || echo "Vulnerabilities found, blocking deploy"
-```
+Exit code `1` if CRITICAL vulnerabilities found — blocks deployments in CI.
 
 ---
 
