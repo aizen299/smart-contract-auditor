@@ -2,6 +2,21 @@
 
 Production-grade smart contract security scanner. Upload a Solidity file or zip, get a real-time audit report with risk scores, ML exploitability predictions, and L2/Arbitrum/Optimism-aware findings.
 
+**Live → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
+
+[![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
+[![CI](https://github.com/aizen299/smart-contract-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/aizen299/smart-contract-auditor/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+---
+
+## Install
+
+```bash
+pip install chainaudit
+```
+
+> Requires: Python 3.11+, [Slither](https://github.com/crytic/slither), [solc-select](https://github.com/crytic/solc-select)
 
 ---
 
@@ -37,7 +52,7 @@ Outputs: `risk-score`, `total-findings`, `critical-count`, `high-count`, `report
 ## CLI
 
 ```bash
-cd backend && pip install -e .
+pip install chainaudit
 
 chainaudit scan contract.sol               # single file
 chainaudit scan ./contracts --recursive    # directory
@@ -151,9 +166,9 @@ Trained on SmartBugs dataset (143 contracts, 10 vulnerability classes). Random F
 - [x] Multi-contract zip scanning
 - [x] Supabase auth + scan history
 - [x] CLI tool — `chainaudit scan`
+- [x] PyPI — `pip install chainaudit`
 - [x] GitHub Marketplace Action
 - [x] Docker, Vercel + Render, CI/CD
 - [ ] Solana / Rust support
-- [ ] PyPI — `pip install chainaudit`
 - [ ] Monetize — free/pro tiers, Stripe billing
 - [ ] API keys for enterprise
