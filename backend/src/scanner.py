@@ -11,13 +11,22 @@ SLITHER_JSON = REPORTS_DIR / "slither.json"
 IMPACT_ORDER = {"High": 3, "Medium": 2, "Low": 1, "Informational": 0}
 
 def run_slither(target: str) -> bool:
-    REPORTS_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(exist_ok=True, parents=True)
 
     if SLITHER_JSON.exists():
         SLITHER_JSON.unlink()
 
-    cmd = ["slither", target, "--json", str(SLITHER_JSON)]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    # Use absolute path — works on Windows and Mac regardless of cwd
+    target_abs = str(Path(target).resolve())
+
+    cmd = ["slither", target_abs, "--json", str(SLITHER_JSON)]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        cwd=str(Path(target_abs).parent),  # run from contract's directory
+    )
 
     if not SLITHER_JSON.exists():
         return False
@@ -30,7 +39,6 @@ def run_slither(target: str) -> bool:
         return False
 
     return True
-
 
 def _read_source(target: str) -> str:
     """Read contract source — handles single file or directory."""
