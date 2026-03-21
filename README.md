@@ -2,7 +2,6 @@
 
 Production-grade smart contract security scanner. Upload a Solidity file or zip, get a real-time audit report with risk scores, ML exploitability predictions, and L2/Arbitrum/Optimism-aware findings.
 
-**Live → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
 
 [![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![CI](https://github.com/aizen299/smart-contract-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/aizen299/smart-contract-auditor/actions)
@@ -12,11 +11,29 @@ Production-grade smart contract security scanner. Upload a Solidity file or zip,
 
 ## Install
 
+### Mac / Linux / Ubuntu
+
 ```bash
 pip install chainaudit
+pip install slither-analyzer
+pip install solc-select
+solc-select install 0.8.24
+solc-select use 0.8.24
 ```
 
-> Requires: Python 3.11+, [Slither](https://github.com/crytic/slither), [solc-select](https://github.com/crytic/solc-select)
+### Windows
+
+> Requires Python 3.12. Download from [python.org](https://www.python.org/downloads/release/python-3128/) — check "Add Python to PATH" during install. Python 3.13 not yet supported on Windows.
+
+```powershell
+pip install chainaudit
+pip install slither-analyzer
+pip install solc-select
+solc-select install 0.8.24
+solc-select use 0.8.24
+```
+
+> If on a college/office network, use mobile hotspot for installation.
 
 ---
 
@@ -52,13 +69,12 @@ Outputs: `risk-score`, `total-findings`, `critical-count`, `high-count`, `report
 ## CLI
 
 ```bash
-pip install chainaudit
-
 chainaudit scan contract.sol               # single file
 chainaudit scan ./contracts --recursive    # directory
 chainaudit scan contracts.zip              # zip archive
 chainaudit scan contract.sol --json        # JSON output
 chainaudit scan contract.sol --ml-only     # skip simulation
+chainaudit --version                       # show version
 ```
 
 Exit code `1` on CRITICAL findings — blocks deployments in CI.
