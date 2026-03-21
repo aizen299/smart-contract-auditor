@@ -1,14 +1,14 @@
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from src.rules import map_finding, detect_l2_chain, get_l2_rules
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-REPORTS_DIR = BASE_DIR / "reports"
+REPORTS_DIR = Path(tempfile.gettempdir()) / "chainaudit_reports"
 SLITHER_JSON = REPORTS_DIR / "slither.json"
 
 IMPACT_ORDER = {"High": 3, "Medium": 2, "Low": 1, "Informational": 0}
-
 
 def run_slither(target: str) -> bool:
     REPORTS_DIR.mkdir(exist_ok=True)
