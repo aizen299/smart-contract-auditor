@@ -1,21 +1,22 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 from pathlib import Path
+
+long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="chainaudit",
-    version="1.0.0",
-    description="ChainAudit — Smart contract security scanner CLI",
-    author="ChainAudit",
+    version="1.0.1",
+    description="Smart contract security scanner — Slither + ML exploitability prediction",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    author="Aditya Raina",
+    author_email="rainaaditya58@gmail.com",
+    url="https://github.com/aizen299/smart-contract-auditor",
     python_requires=">=3.11",
-    package_dir={"": "."},
-    packages=["src", "ml"],
+    packages=find_packages(exclude=["tests*", "dist*", "build*", "*.egg-info"]),
     py_modules=["chainaudit_entry"],
     install_requires=[
-        "fastapi",
-        "uvicorn",
-        "python-multipart",
         "rich",
-        "slither-analyzer",
         "scikit-learn==1.4.0",
         "pandas==2.2.0",
         "numpy==1.26.4",
@@ -29,5 +30,13 @@ setup(
     classifiers=[
         "Programming Language :: Python :: 3.11",
         "Operating System :: OS Independent",
+        "Topic :: Security",
+        "Topic :: Software Development :: Quality Assurance",
     ],
+    license="MIT",
+    keywords="solidity smart-contract security audit slither ethereum arbitrum optimism",
+    project_urls={
+        "Live": "https://chainaudit.vercel.app",
+        "Source": "https://github.com/aizen299/smart-contract-auditor",
+    },
 )
