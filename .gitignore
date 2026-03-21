@@ -28,3 +28,6 @@ frontend/.env.local
 Thumbs.db
 docker-compose.yml
 ml/smartbugs/
+backend/dist/
+backend/build/
+backend/*.egg-info/
