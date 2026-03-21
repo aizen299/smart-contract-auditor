@@ -5,7 +5,7 @@ Smart contract security scanner powered by Slither + ML exploitability predictio
 [![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/aizen299/smart-contract-auditor/blob/main/LICENSE)
 
-**Web app → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
+> Requires Python 3.11 or 3.12. Python 3.13 not yet supported on Windows.
 
 ---
 

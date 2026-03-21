@@ -5,7 +5,7 @@ long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf
 
 setup(
     name="chainaudit",
-    version="1.0.2",
+    version="1.0.3",
     description="Smart contract security scanner — Slither + ML exploitability prediction",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -16,12 +16,12 @@ setup(
     packages=find_packages(exclude=["tests*", "dist*", "build*", "*.egg-info"]),
     py_modules=["chainaudit_entry"],
     install_requires=[
-        "rich",
-        "scikit-learn==1.4.0",
-        "pandas==2.2.0",
-        "numpy==1.26.4",
-        "joblib==1.3.2",
-    ],
+    "rich",
+    "scikit-learn>=1.4.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "joblib>=1.3.0",
+],
     entry_points={
         "console_scripts": [
             "chainaudit=chainaudit_entry:main",
