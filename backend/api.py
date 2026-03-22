@@ -7,6 +7,7 @@ import uuid
 import shutil
 import zipfile
 import io
+import tempfile
 from pathlib import Path
 
 app = FastAPI()
@@ -145,11 +146,6 @@ async def scan_contract(file: UploadFile = File(...)):
 
 @app.post("/scan/rust")
 async def scan_rust(file: UploadFile = File(...)):
-    """
-    Scan a Solana/Rust program (.rs file) for vulnerabilities.
-    Runs cargo-audit for dependency CVEs and pattern-based
-    detection for Solana-specific vulnerability patterns.
-    """
     if not file.filename or not file.filename.endswith(".rs"):
         raise HTTPException(
             status_code=400,
@@ -181,7 +177,6 @@ async def scan_rust(file: UploadFile = File(...)):
     try:
         rs_path.write_bytes(content)
 
-        # Run Solana scanner
         from src.solana_scanner import scan_solana
         report = scan_solana(rs_path)
 
@@ -228,7 +223,8 @@ async def scan_zip(file: UploadFile = File(...)):
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid zip file.")
 
-    sol_files = [
+    # Detect file types in zip
+    sol_names = [
         name for name in zf.namelist()
         if name.endswith(".sol")
         and not name.startswith("__MACOSX")
@@ -239,14 +235,24 @@ async def scan_zip(file: UploadFile = File(...)):
         and "/mocks/" not in name
         and not os.path.basename(name).startswith(".")
     ]
+    rs_names = [
+        name for name in zf.namelist()
+        if name.endswith(".rs")
+        and not name.startswith("__MACOSX")
+        and "target/" not in name
+        and not os.path.basename(name).startswith(".")
+    ]
 
-    if len(sol_files) == 0:
+    has_sol = len(sol_names) > 0
+    has_rs = len(rs_names) > 0
+
+    if not has_sol and not has_rs:
         raise HTTPException(
             status_code=400,
-            detail="No Solidity files found in the zip."
+            detail="No Solidity or Rust files found in the zip."
         )
 
-    if len(sol_files) > MAX_SOL_FILES:
+    if len(sol_names) > MAX_SOL_FILES:
         raise HTTPException(
             status_code=400,
             detail=f"Too many files. Maximum is {MAX_SOL_FILES} .sol files per zip."
@@ -261,7 +267,8 @@ async def scan_zip(file: UploadFile = File(...)):
     total_risk = 0
 
     try:
-        for sol_name in sol_files:
+        # --- Solidity files ---
+        for sol_name in sol_names:
             file_content = zf.read(sol_name)
 
             if not is_valid_solidity(file_content):
@@ -312,13 +319,51 @@ async def scan_zip(file: UploadFile = File(...)):
                     "findings": [],
                 })
 
+        # --- Rust files ---
+        if has_rs:
+            # Extract all rs files to a temp dir and run Solana scanner
+            rs_extract_dir = os.path.join(scan_dir, "rust_files")
+            os.makedirs(rs_extract_dir, exist_ok=True)
+
+            for rs_name in rs_names:
+                rs_content = zf.read(rs_name)
+                rs_file_path = Path(rs_extract_dir) / os.path.basename(rs_name)
+                rs_file_path.write_bytes(rs_content)
+
+            try:
+                from src.solana_scanner import scan_solana
+                rs_report = scan_solana(Path(rs_extract_dir))
+                rs_report["file"] = f"{len(rs_names)} Rust file(s)"
+                rs_report["status"] = rs_report.get("status", "success")
+                results.append({
+                    "file": f"[Solana] {len(rs_names)} file(s)",
+                    "status": rs_report.get("status", "success"),
+                    "chain": "solana",
+                    "risk_score": rs_report.get("risk_score", 0),
+                    "total_findings": rs_report.get("total_findings", 0),
+                    "findings": rs_report.get("findings", []),
+                    "is_anchor": rs_report.get("is_anchor", False),
+                })
+                all_findings.extend(rs_report.get("findings", []))
+                total_risk = max(total_risk, rs_report.get("risk_score", 0))
+            except Exception as e:
+                results.append({
+                    "file": f"[Solana] {len(rs_names)} file(s)",
+                    "status": "error",
+                    "reason": f"Solana scanner error: {str(e)}",
+                    "risk_score": 0,
+                    "findings": [],
+                })
+
         return {
             "scan_id": scan_id,
             "type": "multi",
-            "total_files": len(sol_files),
+            "total_files": len(sol_names) + len(rs_names),
             "scanned": len([r for r in results if r["status"] == "success"]),
             "overall_risk_score": total_risk,
             "total_findings": len(all_findings),
+            "has_solana": has_rs,
+            "has_evm": has_sol,
             "files": results,
         }
 

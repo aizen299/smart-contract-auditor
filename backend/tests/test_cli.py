@@ -75,7 +75,6 @@ def broken_sol(tmp_path):
 
 @pytest.fixture
 def sol_directory(tmp_path):
-    # Create files directly — don't copy from other fixtures that share tmp_path
     d = tmp_path / "contracts"
     d.mkdir()
     (d / "Empty.sol").write_text("pragma solidity ^0.8.24;\ncontract Empty {}\n")
@@ -83,12 +82,60 @@ def sol_directory(tmp_path):
         "pragma solidity ^0.8.24;\ncontract SimpleStaking { address public owner; }\n"
     )
     return d
+
+
 @pytest.fixture
 def sol_zip(tmp_path, valid_sol, empty_sol):
     zip_path = tmp_path / "contracts.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.write(valid_sol, "SimpleStaking.sol")
         zf.write(empty_sol, "Empty.sol")
+    return zip_path
+
+
+@pytest.fixture
+def rust_content():
+    return """
+use anchor_lang::prelude::*;
+
+#[program]
+pub mod vault {
+    use super::*;
+    pub fn init(ctx: Context<Init>) -> Result<()> {
+        let v = &mut ctx.accounts.vault;
+        v.balance = v.balance + 100;
+        Ok(())
+    }
+}
+
+unsafe fn raw(ptr: *mut u8) { std::ptr::write_bytes(ptr, 0, 1); }
+
+#[derive(Accounts)]
+pub struct Init<'info> {
+    pub vault: Account<'info, Vault>,
+    pub authority: AccountInfo<'info>,
+}
+
+#[account]
+pub struct Vault { pub balance: u64 }
+"""
+
+
+@pytest.fixture
+def rust_zip(tmp_path, rust_content):
+    zip_path = tmp_path / "rust.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("lib.rs", rust_content)
+        zf.writestr("helper.rs", "use anchor_lang::prelude::*;\npub fn helper() {}\n")
+    return zip_path
+
+
+@pytest.fixture
+def mixed_zip(tmp_path, rust_content):
+    zip_path = tmp_path / "mixed.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("contract.sol", "pragma solidity ^0.8.0; contract Test { address owner; }")
+        zf.writestr("program.rs", rust_content)
     return zip_path
 
 
@@ -170,7 +217,6 @@ class TestRules:
 
     def test_compute_risk_score_capped_at_100(self):
         from src.rules import compute_risk_score
-        # Lots of critical findings shouldn't exceed 100
         findings = [
             {"severity": "CRITICAL", "confidence": "High", "check": "reentrancy-eth", "occurrences": 10}
         ] * 20
@@ -196,7 +242,6 @@ class TestRules:
 class TestScanner:
     def test_parse_slither_report_missing_file(self, tmp_path):
         from src.scanner import parse_slither_report, SLITHER_JSON
-        # Ensure slither.json doesn't exist
         if SLITHER_JSON.exists():
             SLITHER_JSON.unlink()
         result = parse_slither_report()
@@ -233,7 +278,6 @@ class TestScanner:
     def test_parse_slither_report_deduplicates(self):
         from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
-        # Two reentrancy variants should deduplicate to one
         data = {
             "success": True,
             "results": {
@@ -269,7 +313,6 @@ class TestScanner:
         }
         SLITHER_JSON.write_text(json.dumps(data))
         result = parse_slither_report()
-        # solc-version maps to unknown and should be dropped
         assert all(f["title"] != "Unclassified Vulnerability" or f["severity"] != "unknown" for f in result)
 
 
@@ -341,7 +384,8 @@ class TestAPI:
         with open(zip_path, "rb") as fh:
             resp = client.post("/scan/zip", files={"file": ("empty.zip", fh, "application/zip")})
         assert resp.status_code == 400
-        assert "No Solidity" in resp.json()["detail"]
+        # Updated message — now covers both Solidity and Rust
+        assert "No Solidity or Rust" in resp.json()["detail"] or "No Solidity" in resp.json()["detail"]
 
     def test_scan_zip_rejects_oversized(self, client, tmp_path):
         zip_path = tmp_path / "big.zip"
@@ -352,6 +396,54 @@ class TestAPI:
         assert resp.status_code == 400
         assert "large" in resp.json()["detail"].lower()
 
+    def test_scan_zip_sol_only_works(self, client, tmp_path):
+        zip_path = tmp_path / "sol.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("A.sol", "pragma solidity ^0.8.0; contract A { address owner; }")
+            zf.writestr("B.sol", "pragma solidity ^0.8.0; contract B { address owner; }")
+        with open(zip_path, "rb") as fh:
+            resp = client.post("/scan/zip", files={"file": ("sol.zip", fh, "application/zip")})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_evm"] is True
+        assert data["has_solana"] is False
+        assert data["total_files"] == 2
+
+    def test_scan_zip_rust_only_works(self, client, rust_zip):
+        with open(rust_zip, "rb") as fh:
+            resp = client.post("/scan/zip", files={"file": ("rust.zip", fh, "application/zip")})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_solana"] is True
+        assert data["has_evm"] is False
+        assert data["total_findings"] >= 0
+
+    def test_scan_zip_mixed_sol_and_rs(self, client, mixed_zip):
+        with open(mixed_zip, "rb") as fh:
+            resp = client.post("/scan/zip", files={"file": ("mixed.zip", fh, "application/zip")})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_solana"] is True
+        assert data["has_evm"] is True
+        assert data["total_files"] == 2
+
+    def test_scan_zip_mixed_returns_combined_findings(self, client, mixed_zip):
+        with open(mixed_zip, "rb") as fh:
+            resp = client.post("/scan/zip", files={"file": ("mixed.zip", fh, "application/zip")})
+        data = resp.json()
+        assert "files" in data
+        chains = [f.get("chain") for f in data["files"] if f.get("chain")]
+        assert "solana" in chains
+
+    def test_scan_zip_rust_findings_have_chain_tag(self, client, rust_zip):
+        with open(rust_zip, "rb") as fh:
+            resp = client.post("/scan/zip", files={"file": ("rust.zip", fh, "application/zip")})
+        data = resp.json()
+        solana_file = next((f for f in data["files"] if f.get("chain") == "solana"), None)
+        assert solana_file is not None
+        for finding in solana_file.get("findings", []):
+            assert finding["chain"] == "solana"
+
 
 # ---------------------------------------------------------------------------
 # CLI tests
@@ -359,7 +451,6 @@ class TestAPI:
 
 class TestCLI:
     def _run(self, args: list[str]):
-        """Run CLI and return (exit_code, stdout)."""
         from io import StringIO
         from src.cli import build_parser, cmd_scan
         import contextlib
@@ -451,6 +542,43 @@ class TestCLI:
         assert "MyContract.sol" in names
         assert "Dep.sol" not in names
 
+    def test_cmd_scan_rust_zip(self, rust_zip):
+        from src.cli import build_parser, cmd_scan
+        parser = build_parser()
+        args = parser.parse_args(["scan", str(rust_zip), "--json"])
+        exit_code = cmd_scan(args)
+        assert exit_code in (0, 1)  # 0 = no critical, 1 = critical found
+
+    def test_cmd_scan_rust_zip_json_output(self, rust_zip, capsys):
+        from src.cli import build_parser, cmd_scan
+        parser = build_parser()
+        args = parser.parse_args(["scan", str(rust_zip), "--json"])
+        cmd_scan(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "chain" in data
+        assert data["chain"] == "solana"
+
+    def test_cmd_scan_mixed_zip(self, mixed_zip):
+        from src.cli import build_parser, cmd_scan
+        parser = build_parser()
+        args = parser.parse_args(["scan", str(mixed_zip), "--json"])
+        exit_code = cmd_scan(args)
+        assert exit_code in (0, 1)
+
+    def test_cmd_scan_mixed_zip_has_both_chains(self, mixed_zip, capsys):
+        from src.cli import build_parser, cmd_scan
+        parser = build_parser()
+        args = parser.parse_args(["scan", str(mixed_zip), "--json"])
+        cmd_scan(args)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["type"] == "multi"
+        assert data["total_files"] == 2
+        files = data["files"]
+        chains = [f.get("chain") for f in files if f.get("chain")]
+        assert "solana" in chains
+
     @patch("src.cli.run_slither", return_value=True)
     @patch("src.cli.parse_slither_report")
     @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
@@ -499,11 +627,11 @@ class TestCLI:
     @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
     def test_exit_code_critical(self, mock_foundry, mock_parse, mock_slither, valid_sol, mock_slither_findings):
         from src.cli import build_parser, cmd_scan
-        mock_parse.return_value = mock_slither_findings  # contains CRITICAL
+        mock_parse.return_value = mock_slither_findings
         parser = build_parser()
         args = parser.parse_args(["scan", str(valid_sol)])
         exit_code = cmd_scan(args)
-        assert exit_code == 1  # CRITICAL findings → exit 1
+        assert exit_code == 1
 
     @patch("src.cli.run_slither", return_value=True)
     @patch("src.cli.parse_slither_report")
@@ -518,7 +646,7 @@ class TestCLI:
         parser = build_parser()
         args = parser.parse_args(["scan", str(valid_sol)])
         exit_code = cmd_scan(args)
-        assert exit_code == 0  # no CRITICAL → exit 0
+        assert exit_code == 0
 
 
 # ---------------------------------------------------------------------------
@@ -574,8 +702,9 @@ class TestMLPredictor:
         except ImportError:
             pytest.skip("ML module not available")
 
+
 # ---------------------------------------------------------------------------
-# Solana scanner tests
+# Solana rules tests
 # ---------------------------------------------------------------------------
 
 class TestSolanaRules:
@@ -628,6 +757,10 @@ class TestSolanaRules:
             assert "anti_patterns" in p
             assert p["rule_id"] in SOLANA_RULES, f"Pattern rule_id '{p['rule_id']}' not in SOLANA_RULES"
 
+
+# ---------------------------------------------------------------------------
+# Solana scanner tests
+# ---------------------------------------------------------------------------
 
 class TestSolanaScanner:
     @pytest.fixture
@@ -815,6 +948,10 @@ pub struct Vault {
         cargo_toml.write_text('[dependencies]\nserde = "1.0"\n')
         assert detect_anchor_project(tmp_path) is False
 
+
+# ---------------------------------------------------------------------------
+# Solana API tests
+# ---------------------------------------------------------------------------
 
 class TestSolanaAPI:
     @pytest.fixture

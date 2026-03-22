@@ -367,7 +367,155 @@ def _print_multi_summary(reports: list[dict]) -> None:
 def cmd_scan(args: argparse.Namespace) -> int:
     target = Path(args.target).expanduser().resolve()
 
-    # --- Solana/Rust detection ---
+    # -------------------------------------------------------------------
+    # ZIP — detect contents and route accordingly
+    # -------------------------------------------------------------------
+    if target.suffix == ".zip":
+        if not target.exists():
+            _print(f"[red]Error:[/red] '{target}' does not exist.")
+            sys.exit(2)
+
+        extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
+        _TEMP_DIRS.append(extract_dir)
+
+        try:
+            with zipfile.ZipFile(target) as zf:
+                zf.extractall(extract_dir)
+        except zipfile.BadZipFile:
+            _print(f"[red]Error:[/red] '{target}' is not a valid zip file.")
+            sys.exit(2)
+
+        extract_path = Path(extract_dir)
+        sol_files = [
+            f for f in extract_path.rglob("*.sol")
+            if "node_modules" not in str(f)
+            and "__MACOSX" not in str(f)
+            and not f.name.startswith(".")
+        ]
+        rs_files = [
+            f for f in extract_path.rglob("*.rs")
+            if "target" not in f.parts
+            and "__MACOSX" not in str(f)
+            and not f.name.startswith(".")
+        ]
+
+        has_sol = len(sol_files) > 0
+        has_rs = len(rs_files) > 0
+
+        if not has_sol and not has_rs:
+            _print("[yellow]Warning:[/yellow] No Solidity or Rust files found in zip.")
+            sys.exit(0)
+
+        # --- Mixed zip: scan both EVM and Solana ---
+        if has_sol and has_rs:
+            if not args.json:
+                _print(f"\n[bold green]ChainAudit[/bold green] detected mixed zip — {len(sol_files)} Solidity + {len(rs_files)} Rust files\n")
+
+            reports = []
+            has_critical = False
+
+            # EVM scans
+            for sol_file in sorted(sol_files):
+                if not args.json:
+                    _print(f"  [dim]→ {sol_file.name} (Solidity)[/dim]")
+                report = _scan_file(sol_file, ml_only=args.ml_only)
+                reports.append(report)
+                if report.get("status") == "success":
+                    if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
+                        has_critical = True
+
+            # Solana scans
+            try:
+                from src.solana_scanner import scan_solana
+                for rs_file in sorted(rs_files):
+                    if not args.json:
+                        _print(f"  [dim]→ {rs_file.name} (Solana/Rust)[/dim]")
+                    report = scan_solana(rs_file)
+                    report["file"] = str(rs_file)
+                    reports.append(report)
+                    if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
+                        has_critical = True
+            except ImportError:
+                pass
+
+            if args.json:
+                output = {
+                    "type": "multi",
+                    "total_files": len(reports),
+                    "scanned": sum(1 for r in reports if r.get("status") == "success"),
+                    "overall_risk_score": max(
+                        (r["risk_score"] for r in reports if r.get("status") == "success"), default=0
+                    ),
+                    "total_findings": sum(r.get("total_findings", 0) for r in reports),
+                    "files": reports,
+                }
+                print(json.dumps(output, indent=2))
+            else:
+                _print_multi_summary(reports)
+
+            return EXIT_CRITICAL if has_critical else EXIT_OK
+
+        # --- Rust only zip ---
+        if has_rs and not has_sol:
+            if not args.json:
+                _print(f"\n[bold green]ChainAudit[/bold green] detected [bold cyan]Solana/Rust[/bold cyan] zip — {len(rs_files)} file(s)\n")
+            try:
+                from src.solana_scanner import scan_solana
+                report = scan_solana(extract_path)
+                report["file"] = str(target)
+                if args.json:
+                    print(json.dumps(report, indent=2))
+                else:
+                    _print_report(report)
+                has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
+                return EXIT_CRITICAL if has_critical else EXIT_OK
+            except ImportError:
+                _print("[red]Error:[/red] Solana scanner not available.")
+                sys.exit(2)
+
+        # --- Solidity only zip --- fall through to EVM pipeline below
+        # re-use already extracted sol_files
+        multi = len(sol_files) > 1
+        if not args.json:
+            _print(f"\n[bold green]ChainAudit[/bold green] scanning {len(sol_files)} file(s)...\n")
+
+        reports = []
+        has_critical = False
+        for sol_file in sorted(sol_files):
+            if not args.json and multi:
+                _print(f"  [dim]→ {sol_file.name}[/dim]")
+            report = _scan_file(sol_file, ml_only=args.ml_only)
+            reports.append(report)
+            if report.get("status") == "success":
+                if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
+                    has_critical = True
+
+        if args.json:
+            if multi:
+                output = {
+                    "type": "multi",
+                    "total_files": len(reports),
+                    "scanned": sum(1 for r in reports if r["status"] == "success"),
+                    "overall_risk_score": max(
+                        (r["risk_score"] for r in reports if r["status"] == "success"), default=0
+                    ),
+                    "total_findings": sum(r.get("total_findings", 0) for r in reports),
+                    "files": reports,
+                }
+            else:
+                output = reports[0]
+            print(json.dumps(output, indent=2))
+        else:
+            if multi:
+                _print_multi_summary(reports)
+            else:
+                _print_report(reports[0])
+
+        return EXIT_CRITICAL if has_critical else EXIT_OK
+
+    # -------------------------------------------------------------------
+    # Single .rs file or directory with .rs files — Solana detection
+    # -------------------------------------------------------------------
     try:
         from src.solana_scanner import is_solana_project, scan_solana
         if is_solana_project(target):
@@ -384,7 +532,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
     except ImportError:
         pass
 
-    # --- EVM / Solidity pipeline ---
+    # -------------------------------------------------------------------
+    # EVM / Solidity pipeline
+    # -------------------------------------------------------------------
     sol_files = _collect_sol_files(target, recursive=args.recursive)
     multi = len(sol_files) > 1
 
@@ -428,7 +578,6 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     return EXIT_CRITICAL if has_critical else EXIT_OK
 
-
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -452,7 +601,7 @@ Examples:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.1.1",
+        version="%(prog)s 1.1.2",
     )
     
 
