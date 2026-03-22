@@ -5,7 +5,7 @@ long_description = (Path(__file__).parent / "README.md").read_text(encoding="utf
 
 setup(
     name="chainaudit",
-    version="1.1.2",
+    version="1.1.3",
     description="Smart contract security scanner — Slither + ML exploitability prediction",
     long_description=long_description,
     long_description_content_type="text/markdown",

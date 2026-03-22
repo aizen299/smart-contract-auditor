@@ -1,10 +1,6 @@
 # ChainAudit
 
 Smart contract security scanner — Solidity, Solana/Rust, and L2/Arbitrum/Optimism support.
-
-[![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/aizen299/smart-contract-auditor/blob/main/LICENSE)
-
 ---
 
 ## Install
