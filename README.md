@@ -1,7 +1,8 @@
 # ChainAudit
 
-Production-grade smart contract security scanner. Upload a Solidity file or zip, get a real-time audit report with risk scores, ML exploitability predictions, and L2/Arbitrum/Optimism-aware findings.
+Production-grade smart contract security scanner. Upload a Solidity file, Solana Rust program, or zip of multiple contracts. Get a real-time audit report with risk scores, ML exploitability predictions, L2/Arbitrum/Optimism-aware findings, and Solana-specific vulnerability detection.
 
+**Live → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
 
 [![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![CI](https://github.com/aizen299/smart-contract-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/aizen299/smart-contract-auditor/actions)
@@ -19,6 +20,10 @@ pip install slither-analyzer
 pip install solc-select
 solc-select install 0.8.24
 solc-select use 0.8.24
+
+# Optional — for Solana/Rust scanning
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-audit
 ```
 
 ### Windows
@@ -44,6 +49,7 @@ solc-select use 0.8.24
 | Frontend | Next.js 14, TypeScript, Tailwind CSS |
 | Backend | FastAPI, Python 3.11 |
 | Analysis | Slither, solc-select, CVSS-inspired scoring |
+| Solana | cargo-audit, regex pattern scanner |
 | ML | Random Forest — 88% accuracy (SmartBugs dataset) |
 | Auth | Supabase — email, GitHub, Google OAuth |
 | Deploy | Vercel + Render |
@@ -69,7 +75,8 @@ Outputs: `risk-score`, `total-findings`, `critical-count`, `high-count`, `report
 ## CLI
 
 ```bash
-chainaudit scan contract.sol               # single file
+chainaudit scan contract.sol               # Solidity file
+chainaudit scan program.rs                 # Solana/Rust program
 chainaudit scan ./contracts --recursive    # directory
 chainaudit scan contracts.zip              # zip archive
 chainaudit scan contract.sol --json        # JSON output
@@ -113,6 +120,7 @@ docker compose up --build
 ## API
 
 `POST /scan` — single `.sol` file
+`POST /scan/rust` — Solana/Rust `.rs` file
 `POST /scan/zip` — multiple contracts (max 20 files, 5MB)
 
 ```json
@@ -128,6 +136,12 @@ docker compose up --build
       "occurrences": 7,
       "chain": "arbitrum",
       "l2_detected": true
+    },
+    {
+      "title": "Missing Signer Check",
+      "severity": "CRITICAL",
+      "chain": "solana",
+      "category": "logic"
     }
   ]
 }
@@ -156,6 +170,17 @@ docker compose up --build
 
 L2 rules are **auto-detected** — the scanner reads contract source for Arbitrum/Optimism identifiers (`ArbSys`, `xDomainMessageSender`, `IL2Bridge` etc.) and injects chain-specific findings automatically.
 
+**Solana / Rust — 15 rules**
+
+| Severity | Rules |
+|----------|-------|
+| CRITICAL | Missing Signer Check, Arbitrary CPI, Missing Owner Check |
+| HIGH | Integer Overflow / Underflow, Unsafe Rust Code, Account Confusion, CPI Reentrancy, Insecure Randomness |
+| MEDIUM | Missing Rent Exemption, Unvalidated Account Data, Missing Close Account, PDA Seeds Not Validated |
+| LOW | Missing Freeze Authority, Deprecated Anchor Patterns |
+
+Detected via `cargo-audit` (CVE scanning in dependencies) + regex pattern scanning on `.rs` source files. Anchor framework projects auto-detected.
+
 ---
 
 ## ML Pipeline
@@ -173,18 +198,3 @@ Trained on SmartBugs dataset (143 contracts, 10 vulnerability classes). Random F
 | Uptime | UptimeRobot | `/health` pinged every 5 min |
 
 ---
-
-## Roadmap
-
-- [x] 16 EVM vulnerability rules + CVSS scoring
-- [x] 12 L2/Arbitrum/Optimism rules with auto-detection
-- [x] ML exploitability prediction
-- [x] Multi-contract zip scanning
-- [x] Supabase auth + scan history
-- [x] CLI tool — `chainaudit scan`
-- [x] PyPI — `pip install chainaudit`
-- [x] GitHub Marketplace Action
-- [x] Docker, Vercel + Render, CI/CD
-- [ ] Solana / Rust support
-- [ ] Monetize — free/pro tiers, Stripe billing
-- [ ] API keys for enterprise
