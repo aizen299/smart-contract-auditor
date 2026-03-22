@@ -35,7 +35,13 @@ export default function Home() {
     formData.append("file", file);
 
     const isZip = file.name.endsWith(".zip");
-    const endpoint = isZip ? "/api/scan/zip" : "/api/scan";
+    const isRust = file.name.endsWith(".rs");
+
+    const endpoint = isZip
+      ? "/api/scan/zip"
+      : isRust
+      ? "/api/scan/rust"
+      : "/api/scan";
 
     try {
       const res = await fetch(endpoint, {
@@ -55,6 +61,7 @@ export default function Home() {
         setMultiResult(data);
         setStage("multi-results");
       } else {
+        // Both .sol and .rs return single scan results
         const scanResult = data as ScanResult;
         setResult(scanResult);
         setStage("results");
@@ -68,7 +75,7 @@ export default function Home() {
               user_id: user.id,
               file_name: file.name,
               risk_score: scanResult.risk_score,
-              total_findings: scanResult.findings.length,
+              total_findings: scanResult.total_findings ?? scanResult.findings?.length ?? 0,
               findings: scanResult.findings,
             });
           }

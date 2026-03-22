@@ -7,18 +7,25 @@ interface UploadZoneProps {
   onScan: (file: File) => void;
 }
 
+function getFileType(file: File): "sol" | "zip" | "rust" | null {
+  if (file.name.endsWith(".sol")) return "sol";
+  if (file.name.endsWith(".zip")) return "zip";
+  if (file.name.endsWith(".rs")) return "rust";
+  return null;
+}
+
 export function UploadZone({ onScan }: UploadZoneProps) {
   const [dragging, setDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isZip = selectedFile?.name.endsWith(".zip");
+  const fileType = selectedFile ? getFileType(selectedFile) : null;
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file?.name.endsWith(".sol") || file?.name.endsWith(".zip")) {
+    if (file && getFileType(file)) {
       setSelectedFile(file);
     }
   }, []);
@@ -32,12 +39,30 @@ export function UploadZone({ onScan }: UploadZoneProps) {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setSelectedFile(file);
+    if (file && getFileType(file)) setSelectedFile(file);
   };
 
   const handleScan = () => {
     if (selectedFile) onScan(selectedFile);
   };
+
+  const fileLabel = fileType === "zip"
+    ? "Multi-contract zip"
+    : fileType === "rust"
+    ? "Solana / Rust program"
+    : "Solidity";
+
+  const accentColor = fileType === "rust"
+    ? "#f59e0b"   // amber for Solana
+    : fileType === "zip"
+    ? "#00d4ff"   // blue for zip
+    : "#00ff88";  // green for sol
+
+  const scanButtonLabel = fileType === "zip"
+    ? `→ Scan ${selectedFile?.name}`
+    : fileType === "rust"
+    ? "→ Scan Solana Program"
+    : "→ Scan Contract";
 
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-14 overflow-hidden">
@@ -70,7 +95,7 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         </h1>
 
         <p className="text-white/40 text-base leading-relaxed max-w-lg mx-auto">
-          Upload a single Solidity file or a zip of multiple contracts. Get a
+          Upload a Solidity file, Solana Rust program, or a zip of multiple contracts. Get a
           comprehensive security report with risk scores, severity ratings, and
           actionable fix recommendations.
         </p>
@@ -82,20 +107,19 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onClick={() => !selectedFile && inputRef.current?.click()}
-        className={`relative z-10 w-full max-w-lg rounded-2xl transition-all duration-300 cursor-pointer
+        className={`relative z-10 w-full max-w-lg rounded-2xl transition-all duration-300 cursor-pointer border-2 border-dashed
           ${dragging
             ? "border-[#00ff88]/60 bg-[#00ff88]/5 scale-[1.01]"
             : selectedFile
-            ? "border-[#00ff88]/30 bg-[#00ff88]/[0.03]"
+            ? "border-white/20 bg-white/[0.03]"
             : "border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.03]"
           }
-          border-2 border-dashed
         `}
       >
         <input
           ref={inputRef}
           type="file"
-          accept=".sol,.zip"
+          accept=".sol,.zip,.rs"
           onChange={handleFileChange}
           className="hidden"
         />
@@ -103,23 +127,37 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         <div className="p-10 text-center">
           {selectedFile ? (
             <div className="flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-[#00ff88]/10 border border-[#00ff88]/20 flex items-center justify-center">
-                {isZip
-                  ? <FileArchive className="w-5 h-5 text-[#00ff88]" />
-                  : <FileCode className="w-5 h-5 text-[#00ff88]" />
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center"
+                style={{
+                  backgroundColor: `${accentColor}18`,
+                  border: `1px solid ${accentColor}30`,
+                }}
+              >
+                {fileType === "zip"
+                  ? <FileArchive className="w-5 h-5" style={{ color: accentColor }} />
+                  : <FileCode className="w-5 h-5" style={{ color: accentColor }} />
                 }
               </div>
               <div>
                 <p className="text-white font-medium text-sm">{selectedFile.name}</p>
                 <p className="text-white/30 text-xs mt-1">
-                  {(selectedFile.size / 1024).toFixed(1)} KB · {isZip ? "Multi-contract zip" : "Solidity"}
+                  {(selectedFile.size / 1024).toFixed(1)} KB · {fileLabel}
                 </p>
               </div>
-              {isZip && (
+
+              {/* File type badge */}
+              {fileType === "zip" && (
                 <div className="px-3 py-1 rounded-full bg-[#00d4ff]/10 border border-[#00d4ff]/20 text-[10px] text-[#00d4ff] tracking-widest uppercase">
                   Multi-contract scan
                 </div>
               )}
+              {fileType === "rust" && (
+                <div className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-400 tracking-widest uppercase">
+                  Solana / Rust scan
+                </div>
+              )}
+
               <button
                 onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }}
                 className="text-[11px] text-white/30 hover:text-white/60 underline underline-offset-2 transition-colors"
@@ -134,17 +172,26 @@ export function UploadZone({ onScan }: UploadZoneProps) {
               </div>
               <div>
                 <p className="text-white/70 text-sm font-medium">
-                  Drop your <span className="text-[#00ff88]">.sol</span> or <span className="text-[#00d4ff]">.zip</span> file here
+                  Drop your{" "}
+                  <span className="text-[#00ff88]">.sol</span>
+                  {", "}
+                  <span className="text-amber-400">.rs</span>
+                  {" or "}
+                  <span className="text-[#00d4ff]">.zip</span> file here
                 </p>
                 <p className="text-white/30 text-xs mt-1">or click to browse</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-center">
                 <div className="text-[10px] tracking-widest uppercase text-white/20 border border-white/10 rounded-full px-3 py-1">
-                  Single .sol
+                  Solidity .sol
                 </div>
-                <span className="text-white/20 text-xs">or</span>
+                <span className="text-white/20 text-xs">·</span>
+                <div className="text-[10px] tracking-widest uppercase text-amber-500/40 border border-amber-500/20 rounded-full px-3 py-1">
+                  Solana .rs
+                </div>
+                <span className="text-white/20 text-xs">·</span>
                 <div className="text-[10px] tracking-widest uppercase text-white/20 border border-white/10 rounded-full px-3 py-1">
-                  Multi-contract .zip
+                  Multi .zip
                 </div>
               </div>
             </div>
@@ -163,17 +210,14 @@ export function UploadZone({ onScan }: UploadZoneProps) {
           disabled={!selectedFile}
           className={`w-full py-3.5 rounded-xl text-sm font-semibold tracking-widest uppercase transition-all duration-300
             ${selectedFile
-              ? "bg-[#00ff88] text-[#080b10] hover:bg-[#00e57a] shadow-[0_0_40px_rgba(0,255,136,0.2)] hover:shadow-[0_0_60px_rgba(0,255,136,0.3)] active:scale-[0.99]"
+              ? fileType === "rust"
+                ? "bg-amber-400 text-[#080b10] hover:bg-amber-300 shadow-[0_0_40px_rgba(245,158,11,0.2)] hover:shadow-[0_0_60px_rgba(245,158,11,0.3)] active:scale-[0.99]"
+                : "bg-[#00ff88] text-[#080b10] hover:bg-[#00e57a] shadow-[0_0_40px_rgba(0,255,136,0.2)] hover:shadow-[0_0_60px_rgba(0,255,136,0.3)] active:scale-[0.99]"
               : "bg-white/[0.04] text-white/20 cursor-not-allowed border border-white/10"
             }
           `}
         >
-          {selectedFile
-            ? isZip
-              ? `→ Scan ${selectedFile.name}`
-              : "→ Scan Contract"
-            : "Select a File to Continue"
-          }
+          {selectedFile ? scanButtonLabel : "Select a File to Continue"}
         </button>
       </div>
 
@@ -182,7 +226,7 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         {[
           { icon: Zap, label: "< 30s Analysis" },
           { icon: Lock, label: "Never Stored" },
-          { icon: Eye, label: "16+ Vulnerability Classes" },
+          { icon: Eye, label: "28+ Vulnerability Classes" },
         ].map(({ icon: Icon, label }) => (
           <div
             key={label}

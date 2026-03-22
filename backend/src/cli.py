@@ -366,6 +366,25 @@ def _print_multi_summary(reports: list[dict]) -> None:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     target = Path(args.target).expanduser().resolve()
+
+    # --- Solana/Rust detection ---
+    try:
+        from src.solana_scanner import is_solana_project, scan_solana
+        if is_solana_project(target):
+            if not args.json:
+                _print(f"\n[bold green]ChainAudit[/bold green] detected [bold cyan]Solana/Rust[/bold cyan] project — running Rust scanner...\n")
+            report = scan_solana(target)
+            report["file"] = str(target)
+            if args.json:
+                print(json.dumps(report, indent=2))
+            else:
+                _print_report(report)
+            has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
+            return EXIT_CRITICAL if has_critical else EXIT_OK
+    except ImportError:
+        pass
+
+    # --- EVM / Solidity pipeline ---
     sol_files = _collect_sol_files(target, recursive=args.recursive)
     multi = len(sol_files) > 1
 

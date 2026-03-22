@@ -31,18 +31,19 @@ const nextConfig = {
     ];
   },
   async rewrites() {
+    const api = process.env.NEXT_PUBLIC_API_URL || "http://backend:8000";
     return [
       {
         source: "/api/scan/zip",
-        destination: process.env.NEXT_PUBLIC_API_URL
-          ? `${process.env.NEXT_PUBLIC_API_URL}/scan/zip`
-          : "http://backend:8000/scan/zip",
+        destination: `${api}/scan/zip`,
+      },
+      {
+        source: "/api/scan/rust",
+        destination: `${api}/scan/rust`,
       },
       {
         source: "/api/scan",
-        destination: process.env.NEXT_PUBLIC_API_URL
-          ? `${process.env.NEXT_PUBLIC_API_URL}/scan`
-          : "http://backend:8000/scan",
+        destination: `${api}/scan`,
       },
     ];
   },

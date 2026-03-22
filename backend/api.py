@@ -7,6 +7,7 @@ import uuid
 import shutil
 import zipfile
 import io
+from pathlib import Path
 
 app = FastAPI()
 
@@ -27,12 +28,27 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 MAX_FILE_SIZE = 500 * 1024       # 500KB per .sol
 MAX_ZIP_SIZE = 5 * 1024 * 1024   # 5MB zip
 MAX_SOL_FILES = 20               # max contracts per zip
+MAX_RS_SIZE = 1024 * 1024        # 1MB per .rs file
 
 
 def is_valid_solidity(content: bytes) -> bool:
     try:
         text = content.decode("utf-8")
         return "pragma solidity" in text or "contract " in text or "interface " in text or "library " in text
+    except UnicodeDecodeError:
+        return False
+
+
+def is_valid_rust(content: bytes) -> bool:
+    try:
+        text = content.decode("utf-8")
+        return (
+            "fn " in text
+            or "use anchor_lang" in text
+            or "use solana_program" in text
+            or "pub mod" in text
+            or "#[program]" in text
+        )
     except UnicodeDecodeError:
         return False
 
@@ -64,6 +80,7 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
 
 @app.head("/health")
 async def health_head():
@@ -126,6 +143,67 @@ async def scan_contract(file: UploadFile = File(...)):
             shutil.rmtree(scan_dir)
 
 
+@app.post("/scan/rust")
+async def scan_rust(file: UploadFile = File(...)):
+    """
+    Scan a Solana/Rust program (.rs file) for vulnerabilities.
+    Runs cargo-audit for dependency CVEs and pattern-based
+    detection for Solana-specific vulnerability patterns.
+    """
+    if not file.filename or not file.filename.endswith(".rs"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Only .rs (Rust) files are accepted."
+        )
+
+    content = await file.read()
+
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    if len(content) > MAX_RS_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is {MAX_RS_SIZE // 1024}KB."
+        )
+
+    if not is_valid_rust(content):
+        raise HTTPException(
+            status_code=400,
+            detail="File does not appear to be valid Rust/Solana code."
+        )
+
+    scan_id = str(uuid.uuid4())
+    scan_dir = os.path.join(TEMP_DIR, scan_id)
+    os.makedirs(scan_dir, exist_ok=True)
+    rs_path = Path(scan_dir) / file.filename
+
+    try:
+        rs_path.write_bytes(content)
+
+        # Run Solana scanner
+        from src.solana_scanner import scan_solana
+        report = scan_solana(rs_path)
+
+        if report.get("status") == "error":
+            raise HTTPException(
+                status_code=422,
+                detail=report.get("error", "Could not analyse Rust file.")
+            )
+
+        report["scan_id"] = scan_id
+        report["file_name"] = file.filename
+        return report
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error during scan: {str(e)}")
+    finally:
+        if os.path.exists(scan_dir):
+            shutil.rmtree(scan_dir)
+
+
 @app.post("/scan/zip")
 async def scan_zip(file: UploadFile = File(...)):
     if not file.filename or not file.filename.endswith(".zip"):
@@ -145,23 +223,22 @@ async def scan_zip(file: UploadFile = File(...)):
             detail=f"Zip too large. Maximum size is {MAX_ZIP_SIZE // (1024*1024)}MB."
         )
 
-    # Extract .sol files from zip
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid zip file.")
 
     sol_files = [
-    name for name in zf.namelist()
-    if name.endswith(".sol")
-    and not name.startswith("__MACOSX")
-    and "node_modules" not in name
-    and "/lib/" not in name
-    and "/test/" not in name
-    and "/mock/" not in name
-    and "/mocks/" not in name
-    and not os.path.basename(name).startswith(".")
-]
+        name for name in zf.namelist()
+        if name.endswith(".sol")
+        and not name.startswith("__MACOSX")
+        and "node_modules" not in name
+        and "/lib/" not in name
+        and "/test/" not in name
+        and "/mock/" not in name
+        and "/mocks/" not in name
+        and not os.path.basename(name).startswith(".")
+    ]
 
     if len(sol_files) == 0:
         raise HTTPException(

@@ -29,9 +29,14 @@ function MLBadge({ exploitability, confidence }: { exploitability: string; confi
   );
 }
 
-function L2Badge({ chain }: { chain: string }) {
+function ChainBadge({ chain }: { chain: string }) {
+  const isSolana = chain === "solana";
   return (
-    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-semibold tracking-wide text-sky-400 bg-sky-500/10 border-sky-500/20">
+    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-semibold tracking-wide
+      ${isSolana
+        ? "text-amber-400 bg-amber-500/10 border-amber-500/20"
+        : "text-sky-400 bg-sky-500/10 border-sky-500/20"
+      }`}>
       <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="currentColor">
         <circle cx="5" cy="5" r="4" />
       </svg>
@@ -44,8 +49,13 @@ export function FindingCard({ finding, index }: FindingCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const hasML = (finding as any).ml_exploitability && (finding as any).ml_exploitability !== "unknown";
-  const isL2 = (finding as any).l2_detected === true;
+  const isChainSpecific = (finding as any).l2_detected === true || (finding as any).chain === "solana";
   const chain = (finding as any).chain || "l2";
+  const isSolana = chain === "solana";
+
+  const badgeLabel = isSolana
+    ? "Solana-specific finding"
+    : `L2-specific finding — detected ${chain} identifiers`;
 
   return (
     <div
@@ -62,8 +72,14 @@ export function FindingCard({ finding, index }: FindingCardProps) {
 
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <span className="text-sm font-medium text-white/90">{finding.title}</span>
-          {isL2 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold tracking-wider uppercase">
+
+          {/* Inline chain badge — amber for Solana, sky for L2 */}
+          {isChainSpecific && (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wider uppercase border
+              ${isSolana
+                ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                : "bg-sky-500/10 text-sky-400 border-sky-500/20"
+              }`}>
               {chain}
             </span>
           )}
@@ -79,7 +95,7 @@ export function FindingCard({ finding, index }: FindingCardProps) {
 
       <div
         className={`transition-all duration-300 ease-in-out overflow-hidden ${
-          expanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+          expanded ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
         <div className="px-5 pb-5 space-y-4 border-t border-white/[0.05] pt-4">
@@ -97,12 +113,12 @@ export function FindingCard({ finding, index }: FindingCardProps) {
             </div>
           )}
 
-          {/* L2 Chain Badge */}
-          {isL2 && (
+          {/* Chain Badge */}
+          {isChainSpecific && (
             <div className="flex items-center gap-2">
-              <L2Badge chain={chain} />
+              <ChainBadge chain={chain} />
               <span className="text-[10px] text-white/25">
-                L2-specific finding — detected {chain} identifiers
+                {badgeLabel}
               </span>
             </div>
           )}
