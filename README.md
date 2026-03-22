@@ -2,8 +2,6 @@
 
 Production-grade smart contract security scanner. Upload a Solidity file, Solana Rust program, or zip of multiple contracts. Get a real-time audit report with risk scores, ML exploitability predictions, L2/Arbitrum/Optimism-aware findings, and Solana-specific vulnerability detection.
 
-**Live → [chainaudit.vercel.app](https://chainaudit.vercel.app)**
-
 [![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![CI](https://github.com/aizen299/smart-contract-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/aizen299/smart-contract-auditor/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -78,13 +76,18 @@ Outputs: `risk-score`, `total-findings`, `critical-count`, `high-count`, `report
 chainaudit scan contract.sol               # Solidity file
 chainaudit scan program.rs                 # Solana/Rust program
 chainaudit scan ./contracts --recursive    # directory
-chainaudit scan contracts.zip              # zip archive
+chainaudit scan contracts.zip              # zip — .sol, .rs, or mixed
 chainaudit scan contract.sol --json        # JSON output
 chainaudit scan contract.sol --ml-only     # skip simulation
 chainaudit --version                       # show version
 ```
 
 Exit code `1` on CRITICAL findings — blocks deployments in CI.
+
+**Zip support:**
+- `sol_only.zip` — EVM pipeline for all `.sol` files
+- `rust_only.zip` — Solana scanner for all `.rs` files
+- `mixed.zip` — both pipelines, combined results
 
 ---
 
@@ -121,7 +124,7 @@ docker compose up --build
 
 `POST /scan` — single `.sol` file
 `POST /scan/rust` — Solana/Rust `.rs` file
-`POST /scan/zip` — multiple contracts (max 20 files, 5MB)
+`POST /scan/zip` — `.sol`, `.rs`, or mixed zip (max 20 files, 5MB)
 
 ```json
 {
@@ -197,4 +200,3 @@ Trained on SmartBugs dataset (143 contracts, 10 vulnerability classes). Random F
 | Backend | Render | smart-contract-auditor-812q.onrender.com |
 | Uptime | UptimeRobot | `/health` pinged every 5 min |
 
----
