@@ -29,6 +29,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 MAX_FILE_SIZE = 500 * 1024       # 500KB per .sol
 MAX_ZIP_SIZE = 5 * 1024 * 1024   # 5MB zip
 MAX_SOL_FILES = 20               # max contracts per zip
+MAX_RS_FILES = 20                # max Rust files per zip
 MAX_RS_SIZE = 1024 * 1024        # 1MB per .rs file
 
 
@@ -255,7 +256,13 @@ async def scan_zip(file: UploadFile = File(...)):
     if len(sol_names) > MAX_SOL_FILES:
         raise HTTPException(
             status_code=400,
-            detail=f"Too many files. Maximum is {MAX_SOL_FILES} .sol files per zip."
+            detail=f"Too many Solidity files. Maximum is {MAX_SOL_FILES} .sol files per zip."
+        )
+
+    if len(rs_names) > MAX_RS_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many Rust files. Maximum is {MAX_RS_FILES} .rs files per zip."
         )
 
     scan_id = str(uuid.uuid4())
@@ -319,41 +326,52 @@ async def scan_zip(file: UploadFile = File(...)):
                     "findings": [],
                 })
 
-        # --- Rust files ---
+        # --- Rust files — scan each file individually ---
         if has_rs:
-            # Extract all rs files to a temp dir and run Solana scanner
+            from src.solana_scanner import scan_solana
+
             rs_extract_dir = os.path.join(scan_dir, "rust_files")
             os.makedirs(rs_extract_dir, exist_ok=True)
 
             for rs_name in rs_names:
                 rs_content = zf.read(rs_name)
-                rs_file_path = Path(rs_extract_dir) / os.path.basename(rs_name)
+                rs_basename = os.path.basename(rs_name)
+                rs_file_path = Path(rs_extract_dir) / rs_basename
                 rs_file_path.write_bytes(rs_content)
 
-            try:
-                from src.solana_scanner import scan_solana
-                rs_report = scan_solana(Path(rs_extract_dir))
-                rs_report["file"] = f"{len(rs_names)} Rust file(s)"
-                rs_report["status"] = rs_report.get("status", "success")
-                results.append({
-                    "file": f"[Solana] {len(rs_names)} file(s)",
-                    "status": rs_report.get("status", "success"),
-                    "chain": "solana",
-                    "risk_score": rs_report.get("risk_score", 0),
-                    "total_findings": rs_report.get("total_findings", 0),
-                    "findings": rs_report.get("findings", []),
-                    "is_anchor": rs_report.get("is_anchor", False),
-                })
-                all_findings.extend(rs_report.get("findings", []))
-                total_risk = max(total_risk, rs_report.get("risk_score", 0))
-            except Exception as e:
-                results.append({
-                    "file": f"[Solana] {len(rs_names)} file(s)",
-                    "status": "error",
-                    "reason": f"Solana scanner error: {str(e)}",
-                    "risk_score": 0,
-                    "findings": [],
-                })
+                if not is_valid_rust(rs_content):
+                    results.append({
+                        "file": rs_basename,
+                        "status": "skipped",
+                        "reason": "Not valid Rust/Solana code",
+                        "chain": "solana",
+                        "risk_score": 0,
+                        "findings": [],
+                    })
+                    continue
+
+                try:
+                    rs_report = scan_solana(rs_file_path)
+                    results.append({
+                        "file": rs_basename,
+                        "status": rs_report.get("status", "success"),
+                        "chain": "solana",
+                        "is_anchor": rs_report.get("is_anchor", False),
+                        "risk_score": rs_report.get("risk_score", 0),
+                        "total_findings": rs_report.get("total_findings", 0),
+                        "findings": rs_report.get("findings", []),
+                    })
+                    all_findings.extend(rs_report.get("findings", []))
+                    total_risk = max(total_risk, rs_report.get("risk_score", 0))
+                except Exception as e:
+                    results.append({
+                        "file": rs_basename,
+                        "status": "error",
+                        "reason": f"Solana scanner error: {str(e)}",
+                        "chain": "solana",
+                        "risk_score": 0,
+                        "findings": [],
+                    })
 
         return {
             "scan_id": scan_id,

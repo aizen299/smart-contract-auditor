@@ -13,6 +13,7 @@ interface Finding {
   impact: string;
   confidence: string;
   occurrences: number;
+  chain?: string;
 }
 
 interface FileResult {
@@ -22,6 +23,8 @@ interface FileResult {
   risk_score: number;
   total_findings: number;
   findings: Finding[];
+  chain?: string;
+  is_anchor?: boolean;
 }
 
 interface MultiScanResult {
@@ -31,6 +34,8 @@ interface MultiScanResult {
   scanned: number;
   overall_risk_score: number;
   total_findings: number;
+  has_solana?: boolean;
+  has_evm?: boolean;
   files: FileResult[];
 }
 
@@ -67,9 +72,15 @@ function getRiskLabelText(score: number): string {
 function FileCard({ file, index }: { file: FileResult; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const risk = getRiskColor(file.risk_score);
+  const isSolana = file.chain === "solana";
+  const isAnchor = file.is_anchor === true;
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+    <div className={`rounded-2xl border overflow-hidden transition-all duration-200
+      ${isSolana
+        ? "border-amber-500/20 bg-amber-500/[0.02] hover:border-amber-500/30"
+        : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"
+      }`}>
       <button
         onClick={() => file.status === "success" && setExpanded(!expanded)}
         className="w-full flex items-center gap-4 px-5 py-4 text-left"
@@ -79,8 +90,14 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
         </span>
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <FileCode className="w-3.5 h-3.5 text-white/30 flex-shrink-0" />
+          <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isSolana ? "text-amber-400/50" : "text-white/30"}`} />
           <span className="text-sm text-white/80 truncate">{file.file}</span>
+          {/* Chain badge */}
+          {isSolana && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold tracking-wider uppercase flex-shrink-0">
+              SOLANA{isAnchor ? " · ANCHOR" : ""}
+            </span>
+          )}
         </div>
 
         {file.status === "success" ? (
@@ -113,9 +130,14 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
                 {String(i + 1).padStart(2, "0")}
               </span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="text-sm text-white/80">{finding.title}</span>
                   <SeverityBadge severity={finding.severity} size="sm" />
+                  {finding.chain === "solana" && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold tracking-wider uppercase">
+                      SOLANA
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-white/40 leading-relaxed">{finding.description}</p>
                 <div className="mt-2 rounded-lg bg-[#00ff88]/[0.04] border border-[#00ff88]/[0.10] p-2.5">
@@ -133,6 +155,8 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
 
 export function MultiScanResults({ result, fileName, onRescan }: MultiScanResultsProps) {
   const overallRisk = getRiskColor(result.overall_risk_score);
+  const hasSolana = result.has_solana === true;
+  const hasEVM = result.has_evm === true;
 
   const date = new Date().toLocaleDateString("en-US", {
     month: "short", day: "numeric", year: "numeric",
@@ -146,7 +170,6 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       LOW:      { bg: "#0a1a2d", text: "#60a5fa", border: "#1e3a5f" },
     };
 
-    // Per-file detailed sections
     const fileSectionsHtml = result.files.map((file) => {
       if (file.status !== "success" || file.findings.length === 0) {
         return `
@@ -161,8 +184,10 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       }
 
       const riskColor = getRiskColorHex(file.risk_score);
+      const chainTag = file.chain === "solana"
+        ? `<span style="font-size:9px;padding:2px 8px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:8px;">SOLANA${file.is_anchor ? " · ANCHOR" : ""}</span>`
+        : "";
 
-      // Group findings by severity for this file
       const order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
       const grouped: Record<string, Finding[]> = { CRITICAL: [], HIGH: [], MEDIUM: [], LOW: [] };
       file.findings.forEach(f => grouped[f.severity]?.push(f));
@@ -170,12 +195,15 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       const findingsHtml = order.flatMap(sev =>
         grouped[sev].map((f, i) => {
           const c = SEVERITY_COLORS[sev] || SEVERITY_COLORS.LOW;
+          const findingChainTag = f.chain === "solana"
+            ? `<span style="font-size:8px;padding:1px 6px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:6px;">SOLANA</span>`
+            : "";
           return `
             <div style="margin-bottom:12px;border:1px solid ${c.border};border-radius:8px;overflow:hidden;">
               <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${c.bg}30;border-bottom:1px solid ${c.border}40;">
                 <div style="display:flex;align-items:center;gap:10px;">
                   <span style="font-size:10px;color:#555;font-family:monospace;">${String(i + 1).padStart(2, "0")}</span>
-                  <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${f.title}</span>
+                  <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${f.title}${findingChainTag}</span>
                 </div>
                 <span style="font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:20px;background:${c.bg};color:${c.text};border:1px solid ${c.border};">${sev}</span>
               </div>
@@ -194,7 +222,7 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       return `
         <div style="margin-bottom:28px;border:1px solid #222;border-radius:10px;overflow:hidden;">
           <div style="padding:14px 18px;background:#111;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a1a1a;">
-            <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${file.file}</span>
+            <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${file.file}${chainTag}</span>
             <div>
               <span style="font-size:22px;font-weight:700;font-family:monospace;color:${riskColor};">${file.risk_score}</span>
               <span style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:${riskColor};margin-left:8px;">${getRiskLabelText(file.risk_score)}</span>
@@ -207,12 +235,14 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
         </div>`;
     }).join("");
 
-    // File summary table rows
     const fileRowsHtml = result.files.map(f => {
       const rc = getRiskColorHex(f.risk_score);
+      const chainBadge = f.chain === "solana"
+        ? `<span style="font-size:8px;padding:1px 5px;border-radius:10px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:6px;">SOLANA</span>`
+        : "";
       return `
         <tr>
-          <td style="padding:8px 12px;font-size:12px;color:#ccc;border-bottom:1px solid #1a1a1a;">${f.file}</td>
+          <td style="padding:8px 12px;font-size:12px;color:#ccc;border-bottom:1px solid #1a1a1a;">${f.file}${chainBadge}</td>
           <td style="padding:8px 12px;font-size:12px;font-family:monospace;color:${rc};border-bottom:1px solid #1a1a1a;text-align:center;">${f.risk_score}</td>
           <td style="padding:8px 12px;font-size:12px;color:#666;border-bottom:1px solid #1a1a1a;text-align:center;">${f.status === "success" ? f.total_findings : f.status}</td>
         </tr>`;
@@ -224,34 +254,25 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       <title>Multi-Contract Audit — ${fileName}</title>
       <style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#0a0a0a;color:#e5e5e5;font-family:'Courier New',monospace;padding:48px;}@media print{body{padding:32px;}}</style>
     </head><body>
-
-      <!-- Header -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:24px;border-bottom:1px solid #1a1a1a;margin-bottom:32px;">
         <div>
           <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#555;margin-bottom:6px;">Multi-Contract Security Audit</div>
           <div style="font-size:22px;font-weight:700;color:#fff;">${fileName}</div>
-          <div style="font-size:11px;color:#444;margin-top:4px;">${date} · AuditScan · ${result.total_files} file${result.total_files !== 1 ? "s" : ""}</div>
+          <div style="font-size:11px;color:#444;margin-top:4px;">${date} · ChainAudit · ${result.total_files} file${result.total_files !== 1 ? "s" : ""}</div>
         </div>
         <div style="text-align:right;">
           <div style="font-size:52px;font-weight:700;font-family:monospace;color:${overallColor};line-height:1;">${result.overall_risk_score}</div>
           <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:${overallColor};margin-top:4px;">Overall ${getRiskLabelText(result.overall_risk_score)}</div>
         </div>
       </div>
-
-      <!-- Summary stats -->
       <div style="display:flex;gap:12px;margin-bottom:32px;">
-        ${[
-          ["Files", result.total_files],
-          ["Scanned", result.scanned],
-          ["Total Issues", result.total_findings],
-        ].map(([label, val]) => `
+        ${[["Files", result.total_files], ["Scanned", result.scanned], ["Total Issues", result.total_findings]]
+          .map(([label, val]) => `
           <div style="flex:1;text-align:center;padding:14px 8px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">
             <div style="font-size:28px;font-weight:700;font-family:monospace;color:#e5e5e5;">${val}</div>
             <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#555;margin-top:4px;">${label}</div>
           </div>`).join("")}
       </div>
-
-      <!-- File summary table -->
       <div style="margin-bottom:32px;">
         <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#444;margin-bottom:10px;">File Summary</div>
         <table style="width:100%;border-collapse:collapse;background:#111;border:1px solid #1a1a1a;border-radius:8px;overflow:hidden;">
@@ -265,17 +286,12 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
           <tbody>${fileRowsHtml}</tbody>
         </table>
       </div>
-
-      <!-- Per-file detailed findings -->
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#444;margin-bottom:16px;">Detailed Findings by File</div>
       ${fileSectionsHtml}
-
-      <!-- Footer -->
       <div style="margin-top:48px;padding-top:24px;border-top:1px solid #1a1a1a;display:flex;justify-content:space-between;">
-        <span style="font-size:11px;color:#333;">Generated by AuditScan</span>
+        <span style="font-size:11px;color:#333;">Generated by ChainAudit</span>
         <span style="font-size:11px;color:#333;">${date}</span>
       </div>
-
       <script>window.onload=()=>window.print();</script>
     </body></html>`;
 
@@ -294,6 +310,16 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-white/25">
             <FileCode className="w-3 h-3" />
             <span className="text-white/40 font-medium">{fileName}</span>
+            {hasSolana && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                SOLANA
+              </span>
+            )}
+            {hasEVM && hasSolana && (
+              <span className="px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
+                EVM
+              </span>
+            )}
             <span>·</span>
             <span>{date}</span>
           </div>
@@ -309,8 +335,6 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
         {/* Summary card */}
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 mb-6">
           <div className="flex flex-col md:flex-row items-center gap-8">
-
-            {/* Overall score */}
             <div className="flex flex-col items-center flex-shrink-0">
               <span className={`text-6xl font-bold font-mono ${overallRisk.text}`}>
                 {result.overall_risk_score}
@@ -322,14 +346,19 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
 
             <div className="hidden md:block w-px self-stretch bg-white/[0.06]" />
 
-            {/* Stats */}
             <div className="flex-1 space-y-4 w-full">
               <div>
                 <p className="text-[11px] uppercase tracking-widest text-white/25 mb-1.5">Multi-Contract Scan</p>
                 <p className="text-white/60 text-sm leading-relaxed">
                   Scanned <span className="text-white font-semibold">{result.scanned}</span> of{" "}
-                  <span className="text-white font-semibold">{result.total_files}</span> files.
+                  <span className="text-white font-semibold">{result.total_files}</span> files.{" "}
                   Found <span className="text-white font-semibold">{result.total_findings} total issue{result.total_findings !== 1 ? "s" : ""}</span> across all contracts.
+                  {hasSolana && hasEVM && (
+                    <span className="text-amber-400/70"> Mixed EVM + Solana scan.</span>
+                  )}
+                  {hasSolana && !hasEVM && (
+                    <span className="text-amber-400/70"> Solana programs scanned via cargo-audit + pattern analysis.</span>
+                  )}
                 </p>
               </div>
 
@@ -359,7 +388,7 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
           ))}
         </div>
 
-        {/* Footer with working export */}
+        {/* Footer export */}
         <div className="mt-12 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-white/80">Want the full audit report?</p>
