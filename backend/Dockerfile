@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
     libssl-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
@@ -21,10 +22,9 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 
 ENV PATH="/root/.foundry/bin:${PATH}"
 
-# Install Rust + cargo tools for Solana scanning
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN cargo install cargo-audit cargo-geiger
+RUN cargo install cargo-audit
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

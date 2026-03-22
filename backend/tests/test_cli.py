@@ -573,3 +573,332 @@ class TestMLPredictor:
             assert result["exploitability"] == "unknown"
         except ImportError:
             pytest.skip("ML module not available")
+
+# ---------------------------------------------------------------------------
+# Solana scanner tests
+# ---------------------------------------------------------------------------
+
+class TestSolanaRules:
+    def test_all_rules_have_required_fields(self):
+        from src.solana_rules import SOLANA_RULES
+        for rule_id, rule in SOLANA_RULES.items():
+            assert rule.id == rule_id
+            assert rule.severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+            assert rule.title
+            assert rule.description
+            assert rule.fix
+            assert rule.chain == "solana"
+
+    def test_get_rule_known(self):
+        from src.solana_rules import get_rule
+        rule = get_rule("missing-signer-check")
+        assert rule.severity == "CRITICAL"
+        assert rule.id == "missing-signer-check"
+
+    def test_get_rule_unknown_returns_default(self):
+        from src.solana_rules import get_rule
+        rule = get_rule("totally-unknown-xyz")
+        assert rule.id == "unknown"
+
+    def test_compute_solana_risk_score_empty(self):
+        from src.solana_rules import compute_solana_risk_score
+        assert compute_solana_risk_score([]) == 0
+
+    def test_compute_solana_risk_score_critical(self):
+        from src.solana_rules import compute_solana_risk_score
+        findings = [
+            {"severity": "CRITICAL", "confidence": "High"},
+            {"severity": "HIGH", "confidence": "Medium"},
+        ]
+        score = compute_solana_risk_score(findings)
+        assert score > 0
+        assert score <= 100
+
+    def test_compute_solana_risk_score_capped(self):
+        from src.solana_rules import compute_solana_risk_score
+        findings = [{"severity": "CRITICAL", "confidence": "High"}] * 50
+        score = compute_solana_risk_score(findings)
+        assert score <= 100
+
+    def test_patterns_have_required_fields(self):
+        from src.solana_rules import SOLANA_PATTERNS, SOLANA_RULES
+        for p in SOLANA_PATTERNS:
+            assert "rule_id" in p
+            assert "patterns" in p
+            assert "anti_patterns" in p
+            assert p["rule_id"] in SOLANA_RULES, f"Pattern rule_id '{p['rule_id']}' not in SOLANA_RULES"
+
+
+class TestSolanaScanner:
+    @pytest.fixture
+    def vulnerable_rs(self, tmp_path):
+        f = tmp_path / "lib.rs"
+        f.write_text("""
+use anchor_lang::prelude::*;
+
+#[program]
+pub mod vault {
+    use super::*;
+
+    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+        let vault = &mut ctx.accounts.vault;
+        vault.balance = vault.balance + 100;
+        Ok(())
+    }
+}
+
+unsafe fn raw_op(ptr: *mut u8) {
+    std::ptr::write_bytes(ptr, 0, 1);
+}
+
+pub fn pick_winner() -> u64 {
+    let clock = Clock::get().unwrap();
+    clock.unix_timestamp as u64 % 10
+}
+
+#[derive(Accounts)]
+pub struct Initialize<'info> {
+    pub vault: Account<'info, Vault>,
+    pub authority: AccountInfo<'info>,
+}
+
+#[account]
+pub struct Vault {
+    pub balance: u64,
+}
+""")
+        return f
+
+    @pytest.fixture
+    def safe_rs(self, tmp_path):
+        f = tmp_path / "safe.rs"
+        f.write_text("""
+use anchor_lang::prelude::*;
+
+#[program]
+pub mod safe_vault {
+    use super::*;
+
+    pub fn deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+        let vault = &mut ctx.accounts.vault;
+        vault.balance = vault.balance
+            .checked_add(amount)
+            .ok_or(ErrorCode::Overflow)?;
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(mut)]
+    pub vault: Account<'info, Vault>,
+    pub authority: Signer<'info>,
+}
+
+#[account]
+pub struct Vault {
+    pub balance: u64,
+}
+""")
+        return f
+
+    def test_is_solana_project_rs_file(self, vulnerable_rs):
+        from src.solana_scanner import is_solana_project
+        assert is_solana_project(vulnerable_rs) is True
+
+    def test_is_solana_project_sol_file(self, empty_sol):
+        from src.solana_scanner import is_solana_project
+        assert is_solana_project(empty_sol) is False
+
+    def test_is_solana_project_directory_with_rs(self, tmp_path):
+        from src.solana_scanner import is_solana_project
+        (tmp_path / "lib.rs").write_text("fn main() {}")
+        assert is_solana_project(tmp_path) is True
+
+    def test_is_solana_project_empty_directory(self, tmp_path):
+        from src.solana_scanner import is_solana_project
+        assert is_solana_project(tmp_path) is False
+
+    def test_collect_rs_files_single(self, vulnerable_rs):
+        from src.solana_scanner import _collect_rs_files
+        files = _collect_rs_files(vulnerable_rs)
+        assert len(files) == 1
+        assert files[0] == vulnerable_rs
+
+    def test_collect_rs_files_directory(self, tmp_path):
+        from src.solana_scanner import _collect_rs_files
+        (tmp_path / "a.rs").write_text("fn a() {}")
+        (tmp_path / "b.rs").write_text("fn b() {}")
+        files = _collect_rs_files(tmp_path)
+        assert len(files) == 2
+
+    def test_collect_rs_files_excludes_target(self, tmp_path):
+        from src.solana_scanner import _collect_rs_files
+        target_dir = tmp_path / "target" / "debug"
+        target_dir.mkdir(parents=True)
+        (target_dir / "build.rs").write_text("fn main() {}")
+        (tmp_path / "lib.rs").write_text("fn lib() {}")
+        files = _collect_rs_files(tmp_path)
+        names = [f.name for f in files]
+        assert "lib.rs" in names
+        assert "build.rs" not in names
+
+    def test_pattern_scan_detects_unsafe(self, vulnerable_rs):
+        from src.solana_scanner import run_pattern_scan
+        findings = run_pattern_scan(vulnerable_rs)
+        checks = [f["check"] for f in findings]
+        assert "unsafe-code" in checks
+
+    def test_pattern_scan_detects_insecure_randomness(self, vulnerable_rs):
+        from src.solana_scanner import run_pattern_scan
+        findings = run_pattern_scan(vulnerable_rs)
+        checks = [f["check"] for f in findings]
+        assert "insecure-randomness" in checks
+
+    def test_pattern_scan_detects_integer_overflow(self, vulnerable_rs):
+        from src.solana_scanner import run_pattern_scan
+        findings = run_pattern_scan(vulnerable_rs)
+        checks = [f["check"] for f in findings]
+        assert "integer-overflow" in checks
+
+    def test_pattern_scan_safe_contract_no_overflow(self, safe_rs):
+        from src.solana_scanner import run_pattern_scan
+        findings = run_pattern_scan(safe_rs)
+        checks = [f["check"] for f in findings]
+        assert "integer-overflow" not in checks
+
+    def test_pattern_scan_safe_contract_no_unsafe(self, safe_rs):
+        from src.solana_scanner import run_pattern_scan
+        findings = run_pattern_scan(safe_rs)
+        checks = [f["check"] for f in findings]
+        assert "unsafe-code" not in checks
+
+    def test_scan_solana_returns_success(self, vulnerable_rs):
+        from src.solana_scanner import scan_solana
+        result = scan_solana(vulnerable_rs)
+        assert result["status"] == "success"
+        assert result["chain"] == "solana"
+        assert result["total_findings"] > 0
+        assert result["risk_score"] > 0
+
+    def test_scan_solana_non_rust_returns_error(self, empty_sol):
+        from src.solana_scanner import scan_solana
+        result = scan_solana(empty_sol)
+        assert result["status"] == "error"
+
+    def test_scan_solana_findings_have_required_fields(self, vulnerable_rs):
+        from src.solana_scanner import scan_solana
+        result = scan_solana(vulnerable_rs)
+        for f in result["findings"]:
+            assert "title" in f
+            assert "severity" in f
+            assert "description" in f
+            assert "fix" in f
+            assert "check" in f
+            assert f["severity"] in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+            assert f["chain"] == "solana"
+
+    def test_scan_solana_risk_score_bounded(self, vulnerable_rs):
+        from src.solana_scanner import scan_solana
+        result = scan_solana(vulnerable_rs)
+        assert 0 <= result["risk_score"] <= 100
+
+    def test_detect_anchor_project(self, tmp_path):
+        from src.solana_scanner import detect_anchor_project
+        cargo_toml = tmp_path / "Cargo.toml"
+        cargo_toml.write_text('[dependencies]\nanchor-lang = "0.29.0"\n')
+        assert detect_anchor_project(tmp_path) is True
+
+    def test_detect_non_anchor_project(self, tmp_path):
+        from src.solana_scanner import detect_anchor_project
+        cargo_toml = tmp_path / "Cargo.toml"
+        cargo_toml.write_text('[dependencies]\nserde = "1.0"\n')
+        assert detect_anchor_project(tmp_path) is False
+
+
+class TestSolanaAPI:
+    @pytest.fixture
+    def client(self):
+        from fastapi.testclient import TestClient
+        from api import app
+        return TestClient(app)
+
+    @pytest.fixture
+    def rust_file_content(self):
+        return b"""
+use anchor_lang::prelude::*;
+
+#[program]
+pub mod vault {
+    use super::*;
+    pub fn init(ctx: Context<Init>) -> Result<()> {
+        let v = &mut ctx.accounts.vault;
+        v.balance = v.balance + 100;
+        Ok(())
+    }
+}
+
+unsafe fn raw(ptr: *mut u8) { std::ptr::write_bytes(ptr, 0, 1); }
+
+#[derive(Accounts)]
+pub struct Init<'info> {
+    pub vault: Account<'info, Vault>,
+    pub authority: AccountInfo<'info>,
+}
+
+#[account]
+pub struct Vault { pub balance: u64 }
+"""
+
+    def test_scan_rust_rejects_non_rs(self, client, tmp_path):
+        f = tmp_path / "test.sol"
+        f.write_text("pragma solidity ^0.8.0; contract Test {}")
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("test.sol", fh, "text/plain")})
+        assert resp.status_code == 400
+        assert ".rs" in resp.json()["detail"]
+
+    def test_scan_rust_rejects_empty_file(self, client, tmp_path):
+        f = tmp_path / "empty.rs"
+        f.write_text("")
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("empty.rs", fh, "text/plain")})
+        assert resp.status_code == 400
+
+    def test_scan_rust_rejects_invalid_rust(self, client, tmp_path):
+        f = tmp_path / "fake.rs"
+        f.write_text("this is not rust code at all blah blah")
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("fake.rs", fh, "text/plain")})
+        assert resp.status_code == 400
+
+    def test_scan_rust_valid_file(self, client, tmp_path, rust_file_content):
+        f = tmp_path / "lib.rs"
+        f.write_bytes(rust_file_content)
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("lib.rs", fh, "text/plain")})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["chain"] == "solana"
+        assert "findings" in data
+        assert "risk_score" in data
+        assert "scan_id" in data
+
+    def test_scan_rust_findings_chain_tag(self, client, tmp_path, rust_file_content):
+        f = tmp_path / "lib.rs"
+        f.write_bytes(rust_file_content)
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("lib.rs", fh, "text/plain")})
+        data = resp.json()
+        for finding in data["findings"]:
+            assert finding["chain"] == "solana"
+
+    def test_scan_rust_scanners_used(self, client, tmp_path, rust_file_content):
+        f = tmp_path / "lib.rs"
+        f.write_bytes(rust_file_content)
+        with open(f, "rb") as fh:
+            resp = client.post("/scan/rust", files={"file": ("lib.rs", fh, "text/plain")})
+        data = resp.json()
+        assert "scanners_used" in data
+        assert data["scanners_used"]["pattern_scan"] is True
