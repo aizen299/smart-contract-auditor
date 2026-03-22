@@ -21,6 +21,11 @@ RUN curl -L https://foundry.paradigm.xyz | bash && \
 
 ENV PATH="/root/.foundry/bin:${PATH}"
 
+# Install Rust + cargo tools for Solana scanning
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cargo install cargo-audit cargo-geiger
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
