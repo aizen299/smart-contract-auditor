@@ -53,7 +53,6 @@ SEVERITY_COLORS = {
 EXIT_CRITICAL = 1
 EXIT_OK = 0
 
-# Temp dirs created during zip extraction — cleaned up at exit
 _TEMP_DIRS: list[str] = []
 
 
@@ -83,81 +82,89 @@ def _severity_color(sev: str) -> str:
     return SEVERITY_COLORS.get(sev.upper(), "white")
 
 
-def _collect_sol_files(target: Path, recursive: bool) -> list[Path]:
-    """Return all .sol files from a .sol file, .zip archive, or directory."""
-
-    # --- ZIP ---
-    if target.suffix == ".zip":
-        if not target.exists():
-            _print(f"[red]Error:[/red] '{target}' does not exist.")
-            sys.exit(2)
-
-        extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
-        _TEMP_DIRS.append(extract_dir)
-
-        try:
-            with zipfile.ZipFile(target) as zf:
-                zf.extractall(extract_dir)
-        except zipfile.BadZipFile:
-            _print(f"[red]Error:[/red] '{target}' is not a valid zip file.")
-            sys.exit(2)
-
-        files = [
-            f for f in Path(extract_dir).rglob("*.sol")
-            if "node_modules" not in str(f)
-            and "/lib/" not in str(f)
-            and "/test/" not in str(f)
-            and "/mocks/" not in str(f)
-            and not f.name.startswith(".")
-            and "__MACOSX" not in str(f)
-        ]
-
-        if not files:
-            _print("[yellow]Warning:[/yellow] No Solidity files found in zip.")
-            sys.exit(0)
-
-        return sorted(files)
-
-    # --- Single .sol file ---
-    if target.is_file():
-        if target.suffix != ".sol":
-            _print(f"[red]Error:[/red] '{target}' is not a .sol or .zip file.")
-            sys.exit(2)
-        return [target]
-
-    # --- Directory ---
-    if not target.exists():
-        _print(f"[red]Error:[/red] '{target}' does not exist.")
-        sys.exit(2)
-
-    if not target.is_dir():
-        _print(f"[red]Error:[/red] '{target}' is not a file or directory.")
-        sys.exit(2)
-
-    pattern = "**/*.sol" if recursive else "*.sol"
-    files = [
-        f for f in target.glob(pattern)
-        if "node_modules" not in str(f)
-        and "/lib/" not in str(f)
-        and not f.name.startswith(".")
-    ]
-
-    if not files:
-        _print(f"[yellow]Warning:[/yellow] No .sol files found in '{target}'.")
-        sys.exit(0)
-
-    return sorted(files)
+def _risk_label(score: int) -> str:
+    if score >= 80: return "CRITICAL RISK"
+    if score >= 60: return "HIGH RISK"
+    if score >= 40: return "MEDIUM RISK"
+    if score >= 20: return "LOW RISK"
+    return "MINIMAL RISK"
 
 
-def _add_ml_predictions(findings: list[dict], contract_size: int) -> list[dict]:
-    """Attach ML exploitability predictions to each finding."""
-    if not HAS_ML:
-        return findings
+def _risk_style(score: int) -> str:
+    if score >= 80: return "bold red"
+    if score >= 60: return "bold orange1"
+    if score >= 40: return "bold yellow"
+    if score >= 20: return "bold cyan"
+    return "bold green"
+
+
+# ---------------------------------------------------------------------------
+# ML predictions — unified for both EVM and Solana findings
+# ---------------------------------------------------------------------------
+
+# Maps Solana rule IDs to the closest EVM check for the ML model
+_SOLANA_TO_EVM_CHECK = {
+    "missing-signer-check":    "suicidal",
+    "missing-owner-check":     "suicidal",
+    "arbitrary-cpi":           "reentrancy-eth",
+    "integer-overflow":        "integer-overflow",
+    "unchecked-arithmetic":    "integer-overflow",
+    "unsafe-rust-code":        "assembly",
+    "account-confusion":       "incorrect-equality",
+    "cpi-reentrancy":          "reentrancy-eth",
+    "insecure-randomness":     "weak-prng",
+    "missing-rent-exemption":  "missing-zero-check",
+    "unvalidated-account":     "missing-zero-check",
+    "missing-close-account":   "locked-ether",
+    "pda-seeds-not-validated": "incorrect-equality",
+    "missing-freeze-authority":"suicidal",
+    "deprecated-anchor":       "naming-convention",
+}
+
+# Severity-based fallback confidence when no ML mapping exists
+_SEVERITY_CONFIDENCE = {
+    "CRITICAL": 0.87,
+    "HIGH":     0.74,
+    "MEDIUM":   0.58,
+    "LOW":      0.42,
+}
+
+
+def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
+                         is_solana: bool = False) -> list[dict]:
+    """
+    Attach ml_exploitability and ml_confidence to every finding.
+    Works for both EVM (Slither) findings and Solana (pattern scanner) findings.
+    """
     for f in findings:
         try:
-            result = ml_predictor.predict(f, contract_size)
-            f["ml_exploitability"] = result.get("exploitability", "unknown")
-            f["ml_confidence"] = result.get("confidence", 0.0)
+            if is_solana:
+                rule_id = f.get("rule_id", f.get("check", ""))
+                evm_check = _SOLANA_TO_EVM_CHECK.get(rule_id, "")
+
+                if evm_check and HAS_ML:
+                    evm_finding = {
+                        "check": evm_check,
+                        "severity": f.get("severity", "LOW"),
+                        "confidence": f.get("confidence", "Medium"),
+                    }
+                    result = ml_predictor.predict(evm_finding, contract_size or 500)
+                    f["ml_exploitability"] = result.get("exploitability", "unknown")
+                    f["ml_confidence"] = result.get("confidence", 0.0)
+                else:
+                    # Estimate from severity when no ML mapping
+                    sev = f.get("severity", "LOW")
+                    f["ml_exploitability"] = sev
+                    f["ml_confidence"] = _SEVERITY_CONFIDENCE.get(sev, 0.5)
+            else:
+                # EVM path
+                if HAS_ML:
+                    result = ml_predictor.predict(f, contract_size)
+                    f["ml_exploitability"] = result.get("exploitability", "unknown")
+                    f["ml_confidence"] = result.get("confidence", 0.0)
+                else:
+                    f["ml_exploitability"] = "unknown"
+                    f["ml_confidence"] = 0.0
         except Exception:
             f["ml_exploitability"] = "unknown"
             f["ml_confidence"] = 0.0
@@ -165,14 +172,36 @@ def _add_ml_predictions(findings: list[dict], contract_size: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Scan a single file
+# File collection helpers
+# ---------------------------------------------------------------------------
+
+def _collect_sol_files_from_dir(target: Path, recursive: bool) -> list[Path]:
+    """Collect all .sol files from a directory."""
+    pattern = "**/*.sol" if recursive else "*.sol"
+    return sorted([
+        f for f in target.glob(pattern)
+        if "node_modules" not in str(f)
+        and "/lib/" not in str(f)
+        and not f.name.startswith(".")
+    ])
+
+
+def _collect_rs_files_from_dir(target: Path, recursive: bool) -> list[Path]:
+    """Collect all .rs files from a directory, excluding Rust build artifacts."""
+    pattern = "**/*.rs" if recursive else "*.rs"
+    return sorted([
+        f for f in target.glob(pattern)
+        if "target" not in f.parts   # skip Rust build directory
+        and not f.name.startswith(".")
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Scan a single EVM .sol file
 # ---------------------------------------------------------------------------
 
 def _scan_file(sol_file: Path, ml_only: bool) -> dict:
-    """Run the full scan pipeline on a single .sol file."""
     scan_id = str(uuid.uuid4())
-
-    # Change to backend dir so relative imports inside modules work correctly
     original_dir = os.getcwd()
     os.chdir(_BACKEND_DIR)
 
@@ -180,7 +209,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
         slither_ok = run_slither(str(sol_file))
         if not slither_ok:
             return {
-                "file": str(sol_file),
+                "file": sol_file.name,
                 "status": "error",
                 "error": "Slither failed — possible syntax error or unsupported pragma",
                 "findings": [],
@@ -190,9 +219,9 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 
         findings = parse_slither_report(target=str(sol_file))
         risk_score = compute_risk_score(findings)
-
         contract_size = len(sol_file.read_text(errors="ignore"))
-        findings = _add_ml_predictions(findings, contract_size)
+
+        findings = _add_ml_predictions(findings, contract_size, is_solana=False)
 
         simulation = {"success": False, "stdout": "", "stderr": "skipped"}
         if not ml_only:
@@ -203,7 +232,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 
         return {
             "scan_id": scan_id,
-            "file": str(sol_file),
+            "file": sol_file.name,
             "status": "success",
             "generated": datetime.utcnow().isoformat(),
             "risk_score": risk_score,
@@ -211,52 +240,98 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
             "findings": findings,
             "exploit_simulation": simulation,
         }
-
     finally:
         os.chdir(original_dir)
+
+
+# ---------------------------------------------------------------------------
+# Scan a single Solana .rs file
+# ---------------------------------------------------------------------------
+
+def _scan_rs_file(rs_file: Path) -> dict:
+    """Scan one .rs file through Solana scanner then add ML predictions."""
+    original_dir = os.getcwd()
+    os.chdir(_BACKEND_DIR)
+
+    try:
+        from src.solana_scanner import scan_solana
+        report = scan_solana(rs_file)
+    except ImportError as e:
+        os.chdir(original_dir)
+        return {
+            "file": rs_file.name,
+            "status": "error",
+            "error": f"Solana scanner not available: {e}",
+            "chain": "solana",
+            "risk_score": 0,
+            "total_findings": 0,
+            "findings": [],
+        }
+    finally:
+        os.chdir(original_dir)
+
+    report["file"] = rs_file.name
+
+    # Add ML predictions to Solana findings
+    contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
+    report["findings"] = _add_ml_predictions(
+        report.get("findings", []), contract_size, is_solana=True
+    )
+
+    return report
 
 
 # ---------------------------------------------------------------------------
 # Human-readable output
 # ---------------------------------------------------------------------------
 
+def _format_ml(f: dict) -> str:
+    ml_exp = f.get("ml_exploitability", "")
+    ml_conf = f.get("ml_confidence", 0.0)
+    if not ml_exp or ml_exp in ("unknown", "—", ""):
+        return "—"
+    pct = int(ml_conf * 100)
+    return f"{ml_exp} ({pct}%)"
+
+
 def _print_report(report: dict, show_file: bool = False) -> None:
     if not HAS_RICH or not console:
         _print_report_plain(report, show_file)
         return
 
-    if report["status"] == "error":
-        label = f"\n{report['file']}" if show_file else ""
+    if report.get("status") == "error":
+        label = f"\n{report.get('file', '')}" if show_file else ""
         console.print(Panel(
-            f"[red]{report['error']}[/red]{label}",
+            f"[red]{report.get('error', report.get('reason', 'Unknown error'))}[/red]{label}",
             title="[bold red]Scan Failed[/bold red]",
             border_style="red",
         ))
         return
 
-    risk = report["risk_score"]
-    if risk >= 80:
-        score_style, risk_label = "bold red", "CRITICAL RISK"
-    elif risk >= 60:
-        score_style, risk_label = "bold orange1", "HIGH RISK"
-    elif risk >= 40:
-        score_style, risk_label = "bold yellow", "MEDIUM RISK"
-    elif risk >= 20:
-        score_style, risk_label = "bold cyan", "LOW RISK"
-    else:
-        score_style, risk_label = "bold green", "MINIMAL RISK"
+    risk = report.get("risk_score", 0)
+    rl = _risk_label(risk)
+    rs = _risk_style(risk)
+    findings = report.get("findings", [])
+
+    chain = report.get("chain", "evm")
+    is_anchor = report.get("is_anchor", False)
+    chain_suffix = ""
+    if chain == "solana":
+        chain_suffix = "  · SOLANA"
+        if is_anchor:
+            chain_suffix += "  · ANCHOR"
 
     header = Text()
     if show_file:
-        header.append(f"{report['file']}\n", style="bold white")
+        header.append(f"{report.get('file', '')}\n", style="bold white")
     header.append("Risk Score: ", style="white")
-    header.append(f"{risk}/100", style=score_style)
-    header.append(f"  [{risk_label}]", style=score_style)
-    header.append(f"\nFindings: {report['total_findings']}", style="white")
+    header.append(f"{risk}/100", style=rs)
+    header.append(f"  [{rl}]{chain_suffix}", style=rs)
+    header.append(f"\nFindings: {len(findings)}", style="white")
 
     console.print(Panel(header, title="[bold]ChainAudit Report[/bold]", border_style="green"))
 
-    if not report["findings"]:
+    if not findings:
         console.print("  [green]✓ No vulnerabilities detected.[/green]\n")
         return
 
@@ -266,31 +341,32 @@ def _print_report(report: dict, show_file: bool = False) -> None:
     table.add_column("Severity", width=10)
     table.add_column("Confidence", width=11)
     table.add_column("Occurrences", width=12)
-    table.add_column("ML Prediction", width=20)
+    table.add_column("ML Prediction", width=22)
 
-    for i, f in enumerate(report["findings"], 1):
+    for i, f in enumerate(findings, 1):
         sev = f.get("severity", "LOW")
-        ml_exp = f.get("ml_exploitability", "")
-        ml_conf = f.get("ml_confidence", 0.0)
-        ml_str = f"{ml_exp} ({int(ml_conf * 100)}%)" if ml_exp and ml_exp != "unknown" else "—"
+        sc = _severity_color(sev)
+        ml_str = _format_ml(f)
+        ml_sev = f.get("ml_exploitability", "")
+        ml_color = _severity_color(ml_sev) if ml_sev and ml_sev not in ("unknown", "—", "") else "dim"
 
         table.add_row(
             str(i),
-            f["title"],
-            f"[{_severity_color(sev)}]{sev}[/{_severity_color(sev)}]",
+            f.get("title", "Unknown"),
+            f"[{sc}]{sev}[/{sc}]",
             f.get("confidence", "—"),
             str(f.get("occurrences", 1)),
-            ml_str,
+            f"[{ml_color}]{ml_str}[/{ml_color}]",
         )
 
     console.print(table)
 
-    for i, f in enumerate(report["findings"], 1):
+    for i, f in enumerate(findings, 1):
         sev = f.get("severity", "LOW")
         color = _severity_color(sev)
-        console.print(f"\n  [{color}][{i}] {f['title']}[/{color}]")
-        console.print(f"  [dim]Description:[/dim] {f['description']}")
-        console.print(f"  [green]Fix:[/green] {f['fix']}")
+        console.print(f"\n  [{color}][{i}] {f.get('title', '')}[/{color}]")
+        console.print(f"  [dim]Description:[/dim] {f.get('description', '')}")
+        console.print(f"  [green]Fix:[/green] {f.get('fix', '')}")
 
     console.print()
 
@@ -298,19 +374,20 @@ def _print_report(report: dict, show_file: bool = False) -> None:
 def _print_report_plain(report: dict, show_file: bool = False) -> None:
     sep = "-" * 60
     if show_file:
-        print(f"\nFile: {report['file']}")
+        print(f"\nFile: {report.get('file', '')}")
     print(sep)
-    if report["status"] == "error":
-        print(f"ERROR: {report['error']}")
+    if report.get("status") == "error":
+        print(f"ERROR: {report.get('error', report.get('reason', 'Unknown'))}")
         print(sep)
         return
-    print(f"Risk Score : {report['risk_score']}/100")
-    print(f"Findings   : {report['total_findings']}")
+    print(f"Risk Score : {report.get('risk_score', 0)}/100")
+    print(f"Findings   : {report.get('total_findings', 0)}")
     print(sep)
-    for i, f in enumerate(report["findings"], 1):
-        print(f"[{i}] {f['title']} | {f.get('severity')} | {f.get('confidence')}")
-        print(f"    {f['description']}")
-        print(f"    Fix: {f['fix']}")
+    for i, f in enumerate(report.get("findings", []), 1):
+        ml_str = _format_ml(f)
+        print(f"[{i}] {f.get('title')} | {f.get('severity')} | ML: {ml_str}")
+        print(f"    {f.get('description', '')}")
+        print(f"    Fix: {f.get('fix', '')}")
     print(sep)
 
 
@@ -327,256 +404,228 @@ def _print_multi_summary(reports: list[dict]) -> None:
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold white")
     table.add_column("File", min_width=30)
+    table.add_column("Chain", width=10)
     table.add_column("Score", width=7)
     table.add_column("Findings", width=10)
     table.add_column("Status", width=10)
 
     for r in reports:
-        if r["status"] == "error":
-            table.add_row(Path(r["file"]).name, "—", "—", "[red]error[/red]")
+        chain = r.get("chain", "evm").upper()
+        chain_color = "yellow" if chain == "SOLANA" else "sky_blue1"
+        if r.get("status") == "error":
+            table.add_row(
+                r.get("file", "unknown"),
+                f"[{chain_color}]{chain}[/{chain_color}]",
+                "—", "—", "[red]error[/red]",
+            )
             continue
 
-        risk = r["risk_score"]
-        if risk >= 80:
-            score_str = f"[bold red]{risk}[/bold red]"
-        elif risk >= 60:
-            score_str = f"[bold orange1]{risk}[/bold orange1]"
-        elif risk >= 40:
-            score_str = f"[bold yellow]{risk}[/bold yellow]"
-        else:
-            score_str = f"[bold green]{risk}[/bold green]"
-
+        risk = r.get("risk_score", 0)
+        rs = _risk_style(risk)
         table.add_row(
-            Path(r["file"]).name,
-            score_str,
-            str(r["total_findings"]),
+            r.get("file", "unknown"),
+            f"[{chain_color}]{chain}[/{chain_color}]",
+            f"[{rs}]{risk}[/{rs}]",
+            str(r.get("total_findings", 0)),
             "[green]ok[/green]",
         )
 
     console.print(table)
 
+    # Print per-file findings detail
     for r in reports:
-        if r["status"] == "success" and r["findings"]:
+        if r.get("status") == "success" and r.get("findings"):
             _print_report(r, show_file=True)
 
 
 # ---------------------------------------------------------------------------
-# Scan command
+# Shared output helper
 # ---------------------------------------------------------------------------
 
-def cmd_scan(args: argparse.Namespace) -> int:
-    target = Path(args.target).expanduser().resolve()
-
-    # -------------------------------------------------------------------
-    # ZIP — detect contents and route accordingly
-    # -------------------------------------------------------------------
-    if target.suffix == ".zip":
-        if not target.exists():
-            _print(f"[red]Error:[/red] '{target}' does not exist.")
-            sys.exit(2)
-
-        extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
-        _TEMP_DIRS.append(extract_dir)
-
-        try:
-            with zipfile.ZipFile(target) as zf:
-                zf.extractall(extract_dir)
-        except zipfile.BadZipFile:
-            _print(f"[red]Error:[/red] '{target}' is not a valid zip file.")
-            sys.exit(2)
-
-        extract_path = Path(extract_dir)
-        sol_files = [
-            f for f in extract_path.rglob("*.sol")
-            if "node_modules" not in str(f)
-            and "__MACOSX" not in str(f)
-            and not f.name.startswith(".")
-        ]
-        rs_files = [
-            f for f in extract_path.rglob("*.rs")
-            if "target" not in f.parts
-            and "__MACOSX" not in str(f)
-            and not f.name.startswith(".")
-        ]
-
-        has_sol = len(sol_files) > 0
-        has_rs = len(rs_files) > 0
-
-        if not has_sol and not has_rs:
-            _print("[yellow]Warning:[/yellow] No Solidity or Rust files found in zip.")
-            sys.exit(0)
-
-        # --- Mixed zip: scan both EVM and Solana ---
-        if has_sol and has_rs:
-            if not args.json:
-                _print(f"\n[bold green]ChainAudit[/bold green] detected mixed zip — {len(sol_files)} Solidity + {len(rs_files)} Rust files\n")
-
-            reports = []
-            has_critical = False
-
-            # EVM scans
-            for sol_file in sorted(sol_files):
-                if not args.json:
-                    _print(f"  [dim]→ {sol_file.name} (Solidity)[/dim]")
-                report = _scan_file(sol_file, ml_only=args.ml_only)
-                reports.append(report)
-                if report.get("status") == "success":
-                    if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
-                        has_critical = True
-
-            # Solana scans
-            try:
-                from src.solana_scanner import scan_solana
-                for rs_file in sorted(rs_files):
-                    if not args.json:
-                        _print(f"  [dim]→ {rs_file.name} (Solana/Rust)[/dim]")
-                    report = scan_solana(rs_file)
-                    report["file"] = str(rs_file)
-                    reports.append(report)
-                    if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
-                        has_critical = True
-            except ImportError:
-                pass
-
-            if args.json:
-                output = {
-                    "type": "multi",
-                    "total_files": len(reports),
-                    "scanned": sum(1 for r in reports if r.get("status") == "success"),
-                    "overall_risk_score": max(
-                        (r["risk_score"] for r in reports if r.get("status") == "success"), default=0
-                    ),
-                    "total_findings": sum(r.get("total_findings", 0) for r in reports),
-                    "files": reports,
-                }
-                print(json.dumps(output, indent=2))
-            else:
-                _print_multi_summary(reports)
-
-            return EXIT_CRITICAL if has_critical else EXIT_OK
-
-        # --- Rust only zip ---
-        if has_rs and not has_sol:
-            if not args.json:
-                _print(f"\n[bold green]ChainAudit[/bold green] detected [bold cyan]Solana/Rust[/bold cyan] zip — {len(rs_files)} file(s)\n")
-            try:
-                from src.solana_scanner import scan_solana
-                report = scan_solana(extract_path)
-                report["file"] = str(target)
-                if args.json:
-                    print(json.dumps(report, indent=2))
-                else:
-                    _print_report(report)
-                has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
-                return EXIT_CRITICAL if has_critical else EXIT_OK
-            except ImportError:
-                _print("[red]Error:[/red] Solana scanner not available.")
-                sys.exit(2)
-
-        # --- Solidity only zip --- fall through to EVM pipeline below
-        # re-use already extracted sol_files
-        multi = len(sol_files) > 1
-        if not args.json:
-            _print(f"\n[bold green]ChainAudit[/bold green] scanning {len(sol_files)} file(s)...\n")
-
-        reports = []
-        has_critical = False
-        for sol_file in sorted(sol_files):
-            if not args.json and multi:
-                _print(f"  [dim]→ {sol_file.name}[/dim]")
-            report = _scan_file(sol_file, ml_only=args.ml_only)
-            reports.append(report)
-            if report.get("status") == "success":
-                if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
-                    has_critical = True
-
-        if args.json:
-            if multi:
-                output = {
-                    "type": "multi",
-                    "total_files": len(reports),
-                    "scanned": sum(1 for r in reports if r["status"] == "success"),
-                    "overall_risk_score": max(
-                        (r["risk_score"] for r in reports if r["status"] == "success"), default=0
-                    ),
-                    "total_findings": sum(r.get("total_findings", 0) for r in reports),
-                    "files": reports,
-                }
-            else:
-                output = reports[0]
-            print(json.dumps(output, indent=2))
+def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
+    if args.json:
+        if len(reports) == 1:
+            print(json.dumps(reports[0], indent=2))
         else:
-            if multi:
-                _print_multi_summary(reports)
-            else:
-                _print_report(reports[0])
+            output = {
+                "type": "multi",
+                "total_files": len(reports),
+                "scanned": sum(1 for r in reports if r.get("status") == "success"),
+                "has_evm": any(r.get("chain", "evm") != "solana" for r in reports),
+                "has_solana": any(r.get("chain") == "solana" for r in reports),
+                "overall_risk_score": max(
+                    (r["risk_score"] for r in reports if r.get("status") == "success"),
+                    default=0,
+                ),
+                "total_findings": sum(r.get("total_findings", 0) for r in reports),
+                "files": reports,
+            }
+            print(json.dumps(output, indent=2))
+    else:
+        if len(reports) == 1:
+            _print_report(reports[0])
+        else:
+            _print_multi_summary(reports)
 
-        return EXIT_CRITICAL if has_critical else EXIT_OK
 
-    # -------------------------------------------------------------------
-    # Single .rs file or directory with .rs files — Solana detection
-    # -------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Zip handler
+# ---------------------------------------------------------------------------
+
+def _handle_zip(zip_path: Path, args: argparse.Namespace) -> int:
+    extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
+    _TEMP_DIRS.append(extract_dir)
+
     try:
-        from src.solana_scanner import is_solana_project, scan_solana
-        if is_solana_project(target):
-            if not args.json:
-                _print(f"\n[bold green]ChainAudit[/bold green] detected [bold cyan]Solana/Rust[/bold cyan] project — running Rust scanner...\n")
-            report = scan_solana(target)
-            report["file"] = str(target)
-            if args.json:
-                print(json.dumps(report, indent=2))
-            else:
-                _print_report(report)
-            has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
-            return EXIT_CRITICAL if has_critical else EXIT_OK
-    except ImportError:
-        pass
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(extract_dir)
+    except zipfile.BadZipFile:
+        _print(f"[red]Error:[/red] '{zip_path}' is not a valid zip file.")
+        return 2
 
-    # -------------------------------------------------------------------
-    # EVM / Solidity pipeline
-    # -------------------------------------------------------------------
-    sol_files = _collect_sol_files(target, recursive=args.recursive)
-    multi = len(sol_files) > 1
+    extract_path = Path(extract_dir)
+
+    sol_files = sorted([
+        f for f in extract_path.rglob("*.sol")
+        if "node_modules" not in str(f) and "__MACOSX" not in str(f)
+        and not f.name.startswith(".")
+    ])
+    rs_files = sorted([
+        f for f in extract_path.rglob("*.rs")
+        if "target" not in f.parts and "__MACOSX" not in str(f)
+        and not f.name.startswith(".")
+    ])
+
+    if not sol_files and not rs_files:
+        _print("[yellow]Warning:[/yellow] No Solidity or Rust files found in zip.")
+        return 0
+
+    reports = []
+    has_critical = False
+    total = len(sol_files) + len(rs_files)
 
     if not args.json:
-        _print(f"\n[bold green]ChainAudit[/bold green] scanning {len(sol_files)} file(s)...\n")
+        parts = []
+        if sol_files:
+            parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:
+            parts.append(f"{len(rs_files)} Rust")
+        _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) from zip ({', '.join(parts)})...\n")
+
+    for sol_file in sol_files:
+        if not args.json:
+            _print(f"  [dim]→ {sol_file.name}[/dim]")
+        report = _scan_file(sol_file, ml_only=args.ml_only)
+        reports.append(report)
+        if report.get("status") == "success" and any(
+            f.get("severity") == "CRITICAL" for f in report.get("findings", [])
+        ):
+            has_critical = True
+
+    for rs_file in rs_files:
+        if not args.json:
+            _print(f"  [dim]→ {rs_file.name} [yellow](Solana)[/yellow][/dim]")
+        report = _scan_rs_file(rs_file)
+        reports.append(report)
+        if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
+            has_critical = True
+
+    _output_results(reports, args)
+    return EXIT_CRITICAL if has_critical else EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# Directory handler
+# ---------------------------------------------------------------------------
+
+def _handle_directory(target: Path, args: argparse.Namespace) -> int:
+    sol_files = _collect_sol_files_from_dir(target, recursive=args.recursive)
+    rs_files = _collect_rs_files_from_dir(target, recursive=args.recursive)
+
+    if not sol_files and not rs_files:
+        _print(f"[yellow]Warning:[/yellow] No .sol or .rs files found in '{target}'.")
+        return EXIT_OK
+
+    total = len(sol_files) + len(rs_files)
+
+    if not args.json:
+        parts = []
+        if sol_files:
+            parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:
+            parts.append(f"{len(rs_files)} Rust")
+        _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) ({', '.join(parts)})...\n")
 
     reports = []
     has_critical = False
 
     for sol_file in sol_files:
-        if not args.json and multi:
+        if not args.json:
             _print(f"  [dim]→ {sol_file.name}[/dim]")
-
         report = _scan_file(sol_file, ml_only=args.ml_only)
         reports.append(report)
+        if report.get("status") == "success" and any(
+            f.get("severity") == "CRITICAL" for f in report.get("findings", [])
+        ):
+            has_critical = True
 
-        if report.get("status") == "success":
-            if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
-                has_critical = True
+    for rs_file in rs_files:
+        if not args.json:
+            _print(f"  [dim]→ {rs_file.name} [yellow](Solana)[/yellow][/dim]")
+        report = _scan_rs_file(rs_file)
+        reports.append(report)
+        if any(f.get("severity") == "CRITICAL" for f in report.get("findings", [])):
+            has_critical = True
 
-    if args.json:
-        if multi:
-            output = {
-                "type": "multi",
-                "total_files": len(reports),
-                "scanned": sum(1 for r in reports if r["status"] == "success"),
-                "overall_risk_score": max(
-                    (r["risk_score"] for r in reports if r["status"] == "success"), default=0
-                ),
-                "total_findings": sum(r.get("total_findings", 0) for r in reports),
-                "files": reports,
-            }
-        else:
-            output = reports[0]
-        print(json.dumps(output, indent=2))
-    else:
-        if multi:
-            _print_multi_summary(reports)
-        else:
-            _print_report(reports[0])
-
+    _output_results(reports, args)
     return EXIT_CRITICAL if has_critical else EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# Main scan command
+# ---------------------------------------------------------------------------
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    target = Path(args.target).expanduser().resolve()
+
+    if not target.exists():
+        _print(f"[red]Error:[/red] '{target}' does not exist.")
+        return 2
+
+    # ZIP
+    if target.suffix == ".zip":
+        return _handle_zip(target, args)
+
+    # Single .rs file
+    if target.is_file() and target.suffix == ".rs":
+        if not args.json:
+            _print(f"\n[bold green]ChainAudit[/bold green] detected [bold yellow]Solana/Rust[/bold yellow] — running Rust scanner...\n")
+        report = _scan_rs_file(target)
+        _output_results([report], args)
+        has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
+        return EXIT_CRITICAL if has_critical else EXIT_OK
+
+    # Single .sol file
+    if target.is_file() and target.suffix == ".sol":
+        if not args.json:
+            _print(f"\n[bold green]ChainAudit[/bold green] scanning 1 file...\n")
+        report = _scan_file(target, ml_only=args.ml_only)
+        _output_results([report], args)
+        has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
+        return EXIT_CRITICAL if has_critical else EXIT_OK
+
+    # Unsupported file type
+    if target.is_file():
+        _print(f"[red]Error:[/red] Unsupported file type '{target.suffix}'. Use .sol, .rs, or .zip")
+        return 2
+
+    # Directory
+    if target.is_dir():
+        return _handle_directory(target, args)
+
+    _print(f"[red]Error:[/red] '{target}' is not a valid file or directory.")
+    return 2
+
 
 # ---------------------------------------------------------------------------
 # Argument parser
@@ -594,8 +643,9 @@ Examples:
   chainaudit scan contract.sol --ml-only
   chainaudit scan ./contracts --recursive
   chainaudit scan contracts.zip
+  chainaudit scan program.rs
 
-
+Web app: https://chainaudit.vercel.app
         """,
     )
     parser.add_argument(
@@ -603,15 +653,14 @@ Examples:
         action="version",
         version="%(prog)s 1.1.3",
     )
-    
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
     subparsers.required = True
 
-    scan_parser = subparsers.add_parser("scan", help="Scan a .sol file, .zip, or directory")
+    scan_parser = subparsers.add_parser("scan", help="Scan a .sol file, .rs file, .zip, or directory")
     scan_parser.add_argument(
         "target",
-        help="Path to a .sol file, .zip archive, or directory of contracts",
+        help="Path to a .sol file, .rs file, .zip archive, or directory",
     )
     scan_parser.add_argument(
         "--json",
@@ -627,7 +676,7 @@ Examples:
     scan_parser.add_argument(
         "--recursive",
         action="store_true",
-        help="Recursively scan all .sol files in a directory",
+        help="Recursively scan all files in a directory",
     )
 
     return parser
