@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from src.scanner import run_slither, parse_slither_report
-from src.exploit_simulator import run_foundry_tests
-from src.rules import compute_risk_score
-from src.report_gen import save_json, save_html
+from chainaudit.scanner import run_slither, parse_slither_report
+from chainaudit.exploit_simulator import run_foundry_tests
+from chainaudit.rules import compute_risk_score
+from chainaudit.report_gen import save_json, save_html
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
