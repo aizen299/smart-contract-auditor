@@ -68,6 +68,47 @@ atexit.register(_cleanup_temp_dirs)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _collect_sol_files(path: str, recursive: bool = False) -> list[Path]:
+    p = Path(path)
+
+    if not p.exists():
+        print(f"Error: {path} does not exist")
+        raise SystemExit(2)
+
+    # Single file
+    if p.is_file():
+        if p.suffix == ".sol":
+            return [p]
+        elif p.suffix == ".zip":
+            try:
+                with zipfile.ZipFile(p, "r") as z:
+                    return [
+                        Path(f) for f in z.namelist()
+                        if f.endswith(".sol") and "__MACOSX" not in f
+                    ]
+            except zipfile.BadZipFile:
+                print("Invalid zip file")
+                raise SystemExit(2)
+        else:
+            print("Unsupported file type")
+            raise SystemExit(2)
+
+    # Directory
+    pattern = "**/*.sol" if recursive else "*.sol"
+
+    sol_files = [
+        f for f in p.glob(pattern)
+        if "node_modules" not in f.parts
+        and "/lib/" not in str(f)
+        and not f.name.startswith(".")
+    ]
+
+    if not sol_files:
+        print("No Solidity files found")
+        raise SystemExit(0)
+
+    return sorted(sol_files)
+
 
 def _print(msg: str, style: str = "") -> None:
     if HAS_RICH and console:
@@ -211,6 +252,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
             return {
                 "file": sol_file.name,
                 "status": "error",
+                "chain": "evm",
                 "error": "Slither failed — possible syntax error or unsupported pragma",
                 "findings": [],
                 "risk_score": 0,
@@ -234,6 +276,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
             "scan_id": scan_id,
             "file": sol_file.name,
             "status": "success",
+            "chain": "evm",
             "generated": datetime.utcnow().isoformat(),
             "risk_score": risk_score,
             "total_findings": len(findings),
@@ -447,12 +490,16 @@ def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
         if len(reports) == 1:
             print(json.dumps(reports[0], indent=2))
         else:
+            has_solana = any(r.get("chain") == "solana" for r in reports)
+            has_evm = any(r.get("chain", "evm") == "evm" for r in reports)
+
             output = {
                 "type": "multi",
+                "chain": "mixed" if has_solana and has_evm else "solana" if has_solana else "evm",
                 "total_files": len(reports),
                 "scanned": sum(1 for r in reports if r.get("status") == "success"),
-                "has_evm": any(r.get("chain", "evm") != "solana" for r in reports),
-                "has_solana": any(r.get("chain") == "solana" for r in reports),
+                "has_evm": has_evm,
+                "has_solana": has_solana,
                 "overall_risk_score": max(
                     (r["risk_score"] for r in reports if r.get("status") == "success"),
                     default=0,
@@ -644,8 +691,6 @@ Examples:
   chainaudit scan ./contracts --recursive
   chainaudit scan contracts.zip
   chainaudit scan program.rs
-
-Web app: https://chainaudit.vercel.app
         """,
     )
     parser.add_argument(
