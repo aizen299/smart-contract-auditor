@@ -36,7 +36,7 @@ except ImportError:
     HAS_RICH = False
 
 try:
-    from ml.predictor import predictor as ml_predictor
+    from chainaudit.ml.predictor import predictor as ml_predictor
     HAS_ML = True
 except ImportError:
     HAS_ML = False
@@ -102,26 +102,24 @@ def _risk_style(score: int) -> str:
 # ML predictions — unified for both EVM and Solana findings
 # ---------------------------------------------------------------------------
 
-# Maps Solana rule IDs to the closest EVM check for the ML model
 _SOLANA_TO_EVM_CHECK = {
-    "missing-signer-check":    "suicidal",
-    "missing-owner-check":     "suicidal",
-    "arbitrary-cpi":           "reentrancy-eth",
-    "integer-overflow":        "integer-overflow",
-    "unchecked-arithmetic":    "integer-overflow",
-    "unsafe-rust-code":        "assembly",
-    "account-confusion":       "incorrect-equality",
-    "cpi-reentrancy":          "reentrancy-eth",
-    "insecure-randomness":     "weak-prng",
-    "missing-rent-exemption":  "missing-zero-check",
-    "unvalidated-account":     "missing-zero-check",
-    "missing-close-account":   "locked-ether",
-    "pda-seeds-not-validated": "incorrect-equality",
-    "missing-freeze-authority":"suicidal",
-    "deprecated-anchor":       "naming-convention",
+    "missing-signer-check":     "suicidal",
+    "missing-owner-check":      "suicidal",
+    "arbitrary-cpi":            "reentrancy-eth",
+    "integer-overflow":         "integer-overflow",
+    "unchecked-arithmetic":     "integer-overflow",
+    "unsafe-code":              "assembly",
+    "account-confusion":        "incorrect-equality",
+    "reentrancy-cpi":           "reentrancy-eth",
+    "insecure-randomness":      "weak-prng",
+    "missing-rent-exemption":   "missing-zero-check",
+    "unvalidated-account-data": "missing-zero-check",
+    "missing-close-account":    "locked-ether",
+    "pdas-not-validated":       "incorrect-equality",
+    "missing-freeze-authority": "suicidal",
+    "deprecated-anchor":        "naming-convention",
 }
 
-# Severity-based fallback confidence when no ML mapping exists
 _SEVERITY_CONFIDENCE = {
     "CRITICAL": 0.87,
     "HIGH":     0.74,
@@ -129,45 +127,96 @@ _SEVERITY_CONFIDENCE = {
     "LOW":      0.42,
 }
 
+# Slither check names → what the ML model was trained on
+_SLITHER_TO_ML = {
+    "reentrancy-no-eth":  "reentrancy-eth",
+    "reentrancy-benign":  "reentrancy-eth",
+    "reentrancy-eth":     "reentrancy-eth",
+    "unchecked-transfer": "unchecked-transfer",
+    "unchecked-send":     "unchecked-lowlevel",
+    "unchecked-lowlevel": "unchecked-lowlevel",
+    "timestamp":          "timestamp",
+    "weak-prng":          "weak-prng",
+    "incorrect-equality": "incorrect-equality",
+    "tx-origin":          "tx-origin",
+    "suicidal":           "suicidal",
+    "assembly":           "assembly",
+    "events-access":      "events-access",
+    "events-maths":       "events-maths",
+}
+
+# ML model was trained with title case: "High", "Medium", "Low"
+_TITLE_CASE = {"high": "High", "medium": "Medium", "low": "Low"}
+
+
+def _normalize_level(val: str) -> str:
+    """Convert HIGH/MEDIUM/LOW/high/medium/low → High/Medium/Low (title case)."""
+    return _TITLE_CASE.get(val.strip().lower(), "Medium")
+
 
 def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
-                         is_solana: bool = False) -> list[dict]:
+                        is_solana: bool = False) -> list[dict]:
     """
     Attach ml_exploitability and ml_confidence to every finding.
-    Works for both EVM (Slither) findings and Solana (pattern scanner) findings.
+    Works for both EVM (Slither) and Solana (pattern scanner) findings.
+
+    The ML model was trained with:
+      - check:      lowercase string  e.g. "reentrancy-eth"
+      - impact:     title case string e.g. "High" / "Medium" / "Low"
+      - confidence: title case string e.g. "High" / "Medium" / "Low"
     """
     for f in findings:
         try:
             if is_solana:
-                rule_id = f.get("rule_id", f.get("check", ""))
+                # Map Solana rule ID → closest EVM check
+                rule_id = f.get("rule_id", f.get("check", "")).lower().replace("_", "-")
                 evm_check = _SOLANA_TO_EVM_CHECK.get(rule_id, "")
 
                 if evm_check and HAS_ML:
+                    # Solana findings only have 'confidence', use it for both fields
+                    conf_raw = f.get("confidence", "Medium")
+                    level = _normalize_level(conf_raw)
                     evm_finding = {
-                        "check": evm_check,
-                        "severity": f.get("severity", "LOW"),
-                        "confidence": f.get("confidence", "Medium"),
+                        "check":      evm_check,
+                        "impact":     level,
+                        "confidence": level,
                     }
                     result = ml_predictor.predict(evm_finding, contract_size or 500)
                     f["ml_exploitability"] = result.get("exploitability", "unknown")
-                    f["ml_confidence"] = result.get("confidence", 0.0)
+                    f["ml_confidence"]     = result.get("confidence", 0.0)
                 else:
-                    # Estimate from severity when no ML mapping
+                    # No mapping — fall back to severity-based estimate
                     sev = f.get("severity", "LOW")
                     f["ml_exploitability"] = sev
-                    f["ml_confidence"] = _SEVERITY_CONFIDENCE.get(sev, 0.5)
+                    f["ml_confidence"]     = _SEVERITY_CONFIDENCE.get(sev, 0.5)
+
             else:
-                # EVM path
+                # EVM path — finding dict has 'impact' AND 'confidence' fields
                 if HAS_ML:
-                    result = ml_predictor.predict(f, contract_size)
+                    raw_check = f.get("check", "").lower()
+                    check = _SLITHER_TO_ML.get(raw_check, raw_check)
+
+                    # ✅ Read 'impact' from the 'impact' field (NOT confidence)
+                    # ✅ Normalize to title case that the model expects
+                    impact     = f.get("impact", "Medium").strip().capitalize()
+                    confidence = f.get("confidence", "Medium").strip().capitalize()
+
+                    evm_finding = {
+                        "check":      check,
+                        "impact":     impact,      # e.g. "Medium"
+                        "confidence": confidence,  # e.g. "Medium"
+                    }
+                    result = ml_predictor.predict(evm_finding, contract_size)
                     f["ml_exploitability"] = result.get("exploitability", "unknown")
-                    f["ml_confidence"] = result.get("confidence", 0.0)
+                    f["ml_confidence"]     = result.get("confidence", 0.0)
                 else:
                     f["ml_exploitability"] = "unknown"
-                    f["ml_confidence"] = 0.0
+                    f["ml_confidence"]     = 0.0
+
         except Exception:
             f["ml_exploitability"] = "unknown"
-            f["ml_confidence"] = 0.0
+            f["ml_confidence"]     = 0.0
+
     return findings
 
 
@@ -175,15 +224,67 @@ def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
 # File collection helpers
 # ---------------------------------------------------------------------------
 
-def _collect_sol_files_from_dir(target: Path, recursive: bool) -> list[Path]:
-    """Collect all .sol files from a directory."""
+def _collect_sol_files(target: Path, recursive: bool) -> list[Path]:
+    """Return all .sol files from a .sol file, .zip archive, or directory."""
+
+    if target.suffix == ".zip":
+        if not target.exists():
+            _print(f"[red]Error:[/red] '{target}' does not exist.")
+            sys.exit(2)
+
+        extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
+        _TEMP_DIRS.append(extract_dir)
+
+        try:
+            with zipfile.ZipFile(target) as zf:
+                zf.extractall(extract_dir)
+        except zipfile.BadZipFile:
+            _print(f"[red]Error:[/red] '{target}' is not a valid zip file.")
+            sys.exit(2)
+
+        files = [
+            f for f in Path(extract_dir).rglob("*.sol")
+            if "node_modules" not in str(f)
+            and "/lib/" not in str(f)
+            and "/test/" not in str(f)
+            and "/mocks/" not in str(f)
+            and not f.name.startswith(".")
+            and "__MACOSX" not in str(f)
+        ]
+
+        if not files:
+            _print("[yellow]Warning:[/yellow] No Solidity files found in zip.")
+            sys.exit(0)
+
+        return sorted(files)
+
+    if target.is_file():
+        if target.suffix != ".sol":
+            _print(f"[red]Error:[/red] '{target}' is not a .sol or .zip file.")
+            sys.exit(2)
+        return [target]
+
+    if not target.exists():
+        _print(f"[red]Error:[/red] '{target}' does not exist.")
+        sys.exit(2)
+
+    if not target.is_dir():
+        _print(f"[red]Error:[/red] '{target}' is not a file or directory.")
+        sys.exit(2)
+
     pattern = "**/*.sol" if recursive else "*.sol"
-    return sorted([
+    files = [
         f for f in target.glob(pattern)
         if "node_modules" not in str(f)
         and "/lib/" not in str(f)
         and not f.name.startswith(".")
-    ])
+    ]
+
+    if not files:
+        _print(f"[yellow]Warning:[/yellow] No .sol files found in '{target}'.")
+        sys.exit(0)
+
+    return sorted(files)
 
 
 def _collect_rs_files_from_dir(target: Path, recursive: bool) -> list[Path]:
@@ -191,7 +292,7 @@ def _collect_rs_files_from_dir(target: Path, recursive: bool) -> list[Path]:
     pattern = "**/*.rs" if recursive else "*.rs"
     return sorted([
         f for f in target.glob(pattern)
-        if "target" not in f.parts   # skip Rust build directory
+        if "target" not in f.parts
         and not f.name.startswith(".")
     ])
 
@@ -249,7 +350,7 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 # ---------------------------------------------------------------------------
 
 def _scan_rs_file(rs_file: Path) -> dict:
-    """Scan one .rs file through Solana scanner then add ML predictions."""
+    """Scan one .rs file and add ML predictions."""
     original_dir = os.getcwd()
     os.chdir(_BACKEND_DIR)
 
@@ -272,11 +373,11 @@ def _scan_rs_file(rs_file: Path) -> dict:
 
     report["file"] = rs_file.name
 
-    # Add ML predictions to Solana findings
     contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
     report["findings"] = _add_ml_predictions(
         report.get("findings", []), contract_size, is_solana=True
     )
+    report["total_findings"] = len(report.get("findings", []))
 
     return report
 
@@ -286,7 +387,7 @@ def _scan_rs_file(rs_file: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def _format_ml(f: dict) -> str:
-    ml_exp = f.get("ml_exploitability", "")
+    ml_exp  = f.get("ml_exploitability", "")
     ml_conf = f.get("ml_confidence", 0.0)
     if not ml_exp or ml_exp in ("unknown", "—", ""):
         return "—"
@@ -308,13 +409,13 @@ def _print_report(report: dict, show_file: bool = False) -> None:
         ))
         return
 
-    risk = report.get("risk_score", 0)
-    rl = _risk_label(risk)
-    rs = _risk_style(risk)
+    risk     = report.get("risk_score", 0)
+    rl       = _risk_label(risk)
+    rs       = _risk_style(risk)
     findings = report.get("findings", [])
 
-    chain = report.get("chain", "evm")
-    is_anchor = report.get("is_anchor", False)
+    chain      = report.get("chain", "evm")
+    is_anchor  = report.get("is_anchor", False)
     chain_suffix = ""
     if chain == "solana":
         chain_suffix = "  · SOLANA"
@@ -336,18 +437,18 @@ def _print_report(report: dict, show_file: bool = False) -> None:
         return
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold white")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("Title", min_width=28)
-    table.add_column("Severity", width=10)
-    table.add_column("Confidence", width=11)
-    table.add_column("Occurrences", width=12)
-    table.add_column("ML Prediction", width=22)
+    table.add_column("#",            style="dim", width=4)
+    table.add_column("Title",        min_width=28)
+    table.add_column("Severity",     width=10)
+    table.add_column("Confidence",   width=11)
+    table.add_column("Occurrences",  width=12)
+    table.add_column("ML Prediction",width=22)
 
     for i, f in enumerate(findings, 1):
-        sev = f.get("severity", "LOW")
-        sc = _severity_color(sev)
-        ml_str = _format_ml(f)
-        ml_sev = f.get("ml_exploitability", "")
+        sev      = f.get("severity", "LOW")
+        sc       = _severity_color(sev)
+        ml_str   = _format_ml(f)
+        ml_sev   = f.get("ml_exploitability", "")
         ml_color = _severity_color(ml_sev) if ml_sev and ml_sev not in ("unknown", "—", "") else "dim"
 
         table.add_row(
@@ -362,7 +463,7 @@ def _print_report(report: dict, show_file: bool = False) -> None:
     console.print(table)
 
     for i, f in enumerate(findings, 1):
-        sev = f.get("severity", "LOW")
+        sev   = f.get("severity", "LOW")
         color = _severity_color(sev)
         console.print(f"\n  [{color}][{i}] {f.get('title', '')}[/{color}]")
         console.print(f"  [dim]Description:[/dim] {f.get('description', '')}")
@@ -403,27 +504,27 @@ def _print_multi_summary(reports: list[dict]) -> None:
     ))
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold white")
-    table.add_column("File", min_width=30)
-    table.add_column("Chain", width=10)
-    table.add_column("Score", width=7)
+    table.add_column("File",     min_width=30)
+    table.add_column("Chain",    width=10)
+    table.add_column("Score",    width=7)
     table.add_column("Findings", width=10)
-    table.add_column("Status", width=10)
+    table.add_column("Status",   width=10)
 
     for r in reports:
-        chain = r.get("chain", "evm").upper()
-        chain_color = "yellow" if chain == "SOLANA" else "sky_blue1"
+        chain       = r.get("chain", "evm").upper()
+        chain_color = "yellow" if chain == "SOLANA" else "cyan"
         if r.get("status") == "error":
             table.add_row(
-                r.get("file", "unknown"),
+                Path(r.get("file", "unknown")).name,
                 f"[{chain_color}]{chain}[/{chain_color}]",
                 "—", "—", "[red]error[/red]",
             )
             continue
 
         risk = r.get("risk_score", 0)
-        rs = _risk_style(risk)
+        rs   = _risk_style(risk)
         table.add_row(
-            r.get("file", "unknown"),
+            Path(r.get("file", "unknown")).name,
             f"[{chain_color}]{chain}[/{chain_color}]",
             f"[{rs}]{risk}[/{rs}]",
             str(r.get("total_findings", 0)),
@@ -432,7 +533,6 @@ def _print_multi_summary(reports: list[dict]) -> None:
 
     console.print(table)
 
-    # Print per-file findings detail
     for r in reports:
         if r.get("status") == "success" and r.get("findings"):
             _print_report(r, show_file=True)
@@ -451,8 +551,8 @@ def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
                 "type": "multi",
                 "total_files": len(reports),
                 "scanned": sum(1 for r in reports if r.get("status") == "success"),
-                "has_evm": any(r.get("chain", "evm") != "solana" for r in reports),
-                "has_solana": any(r.get("chain") == "solana" for r in reports),
+                "has_evm":     any(r.get("chain", "evm") != "solana" for r in reports),
+                "has_solana":  any(r.get("chain") == "solana" for r in reports),
                 "overall_risk_score": max(
                     (r["risk_score"] for r in reports if r.get("status") == "success"),
                     default=0,
@@ -473,6 +573,10 @@ def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_zip(zip_path: Path, args: argparse.Namespace) -> int:
+    if not zip_path.exists():
+        _print(f"[red]Error:[/red] '{zip_path}' does not exist.")
+        return 2
+
     extract_dir = tempfile.mkdtemp(prefix="chainaudit_")
     _TEMP_DIRS.append(extract_dir)
 
@@ -500,16 +604,14 @@ def _handle_zip(zip_path: Path, args: argparse.Namespace) -> int:
         _print("[yellow]Warning:[/yellow] No Solidity or Rust files found in zip.")
         return 0
 
-    reports = []
+    reports      = []
     has_critical = False
-    total = len(sol_files) + len(rs_files)
+    total        = len(sol_files) + len(rs_files)
 
     if not args.json:
         parts = []
-        if sol_files:
-            parts.append(f"{len(sol_files)} Solidity")
-        if rs_files:
-            parts.append(f"{len(rs_files)} Rust")
+        if sol_files: parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:  parts.append(f"{len(rs_files)} Rust")
         _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) from zip ({', '.join(parts)})...\n")
 
     for sol_file in sol_files:
@@ -539,8 +641,15 @@ def _handle_zip(zip_path: Path, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _handle_directory(target: Path, args: argparse.Namespace) -> int:
-    sol_files = _collect_sol_files_from_dir(target, recursive=args.recursive)
-    rs_files = _collect_rs_files_from_dir(target, recursive=args.recursive)
+    sol_files = sorted([
+        f for f in (target.rglob("*.sol") if args.recursive else target.glob("*.sol"))
+        if "node_modules" not in str(f) and "/lib/" not in str(f)
+        and not f.name.startswith(".")
+    ])
+    rs_files = sorted([
+        f for f in (target.rglob("*.rs") if args.recursive else target.glob("*.rs"))
+        if "target" not in f.parts and not f.name.startswith(".")
+    ])
 
     if not sol_files and not rs_files:
         _print(f"[yellow]Warning:[/yellow] No .sol or .rs files found in '{target}'.")
@@ -550,13 +659,11 @@ def _handle_directory(target: Path, args: argparse.Namespace) -> int:
 
     if not args.json:
         parts = []
-        if sol_files:
-            parts.append(f"{len(sol_files)} Solidity")
-        if rs_files:
-            parts.append(f"{len(rs_files)} Rust")
+        if sol_files: parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:  parts.append(f"{len(rs_files)} Rust")
         _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) ({', '.join(parts)})...\n")
 
-    reports = []
+    reports      = []
     has_critical = False
 
     for sol_file in sol_files:
@@ -658,26 +765,12 @@ Web app: https://chainaudit.vercel.app
     subparsers.required = True
 
     scan_parser = subparsers.add_parser("scan", help="Scan a .sol file, .rs file, .zip, or directory")
-    scan_parser.add_argument(
-        "target",
-        help="Path to a .sol file, .rs file, .zip archive, or directory",
-    )
-    scan_parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output full report as JSON",
-    )
-    scan_parser.add_argument(
-        "--ml-only",
-        action="store_true",
-        dest="ml_only",
-        help="Skip exploit simulation, run ML prediction only",
-    )
-    scan_parser.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Recursively scan all files in a directory",
-    )
+    scan_parser.add_argument("target", help="Path to a .sol file, .rs file, .zip archive, or directory")
+    scan_parser.add_argument("--json",      action="store_true", help="Output full report as JSON")
+    scan_parser.add_argument("--ml-only",   action="store_true", dest="ml_only",
+                             help="Skip exploit simulation, run ML prediction only")
+    scan_parser.add_argument("--recursive", action="store_true",
+                             help="Recursively scan all files in a directory")
 
     return parser
 
@@ -688,12 +781,11 @@ Web app: https://chainaudit.vercel.app
 
 def main() -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args   = parser.parse_args()
 
     try:
         if args.command == "scan":
-            exit_code = cmd_scan(args)
-            sys.exit(exit_code)
+            sys.exit(cmd_scan(args))
         else:
             parser.print_help()
             sys.exit(2)
