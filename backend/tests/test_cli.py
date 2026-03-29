@@ -656,14 +656,14 @@ class TestCLI:
 class TestMLPredictor:
     def test_predictor_loads(self):
         try:
-            from ml.predictor import predictor
+            from src.chainaudit.ml.predictor import predictor
             assert predictor is not None
         except ImportError:
             pytest.skip("ML module not available")
 
     def test_predictor_returns_dict(self):
         try:
-            from ml.predictor import predictor
+            from src.chainaudit.ml.predictor import predictor
             finding = {
                 "check": "reentrancy-eth",
                 "impact": "High",
@@ -679,7 +679,7 @@ class TestMLPredictor:
 
     def test_predictor_handles_unknown_check(self):
         try:
-            from ml.predictor import predictor
+            from src.chainaudit.ml.predictor import predictor
             finding = {
                 "check": "totally-unknown-xyz",
                 "impact": "Low",
@@ -695,7 +695,7 @@ class TestMLPredictor:
         try:
             import ml.predictor as pred_module
             monkeypatch.setattr(pred_module, "MODEL_PATH", tmp_path / "nonexistent.joblib")
-            from ml.predictor import ExploitabilityPredictor
+            from src.chainaudit.ml.predictor import ExploitabilityPredictor
             p = ExploitabilityPredictor()
             result = p.predict({"check": "reentrancy", "impact": "High", "confidence": "High", "occurrences": 1}, 1000)
             assert result["exploitability"] == "unknown"

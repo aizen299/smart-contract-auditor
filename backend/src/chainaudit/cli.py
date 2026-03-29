@@ -21,9 +21,9 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from chainaudit.scanner import run_slither, parse_slither_report
-from chainaudit.rules import compute_risk_score
-from chainaudit.exploit_simulator import run_foundry_tests
+from src.chainaudit.scanner import run_slither, parse_slither_report
+from src.chainaudit.rules import compute_risk_score
+from src.chainaudit.exploit_simulator import run_foundry_tests
 
 try:
     from rich.console import Console
@@ -36,7 +36,7 @@ except ImportError:
     HAS_RICH = False
 
 try:
-    from chainaudit.ml.predictor import predictor as ml_predictor
+    from src.chainaudit.ml.predictor import predictor as ml_predictor
     HAS_ML = True
 except ImportError:
     HAS_ML = False
@@ -355,7 +355,7 @@ def _scan_rs_file(rs_file: Path) -> dict:
     os.chdir(_BACKEND_DIR)
 
     try:
-        from chainaudit.solana_scanner import scan_solana
+        from src.chainaudit.solana_scanner import scan_solana
         report = scan_solana(rs_file)
     except ImportError as e:
         os.chdir(original_dir)

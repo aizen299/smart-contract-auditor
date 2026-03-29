@@ -13,7 +13,7 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from chainaudit.solana_rules import (
+from src.chainaudit.solana_rules import (
     SOLANA_RULES,
     SOLANA_PATTERNS,
     compute_solana_risk_score,

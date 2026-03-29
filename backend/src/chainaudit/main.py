@@ -4,10 +4,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from chainaudit.scanner import run_slither, parse_slither_report
-from chainaudit.exploit_simulator import run_foundry_tests
-from chainaudit.rules import compute_risk_score
-from chainaudit.report_gen import save_json, save_html
+from src.chainaudit.scanner import run_slither, parse_slither_report
+from src.chainaudit.exploit_simulator import run_foundry_tests
+from src.chainaudit.rules import compute_risk_score
+from src.chainaudit.report_gen import save_json, save_html
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -42,7 +42,7 @@ def main():
 
     # Add ML exploitability predictions
     try:
-        from ml.predictor import predictor
+        from src.chainaudit.ml.predictor import predictor
         contract_size = len(target.read_text(errors="ignore"))
         for finding in findings:
             ml_result = predictor.predict(finding, contract_size)
