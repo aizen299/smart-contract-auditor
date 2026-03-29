@@ -33,3 +33,5 @@ backend/build/
 backend/*.egg-info/
 backend/chainaudit-*/
 backend/build/
+backend/tmp_scans
+backend/reports
