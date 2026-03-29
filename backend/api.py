@@ -56,22 +56,41 @@ def is_valid_rust(content: bytes) -> bool:
 
 
 def run_scan(contract_path: str, scan_id: str) -> dict:
-    result = subprocess.run(
-        ["python3", "-m", "src.chainaudit.main", "--target", contract_path, "--scan-id", scan_id],
-        cwd=BASE_DIR,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if result.returncode != 0:
-        return None
+    try:
+        import sys
+        sys.path.insert(0, BASE_DIR)
+        from src.chainaudit.scanner import run_slither, parse_slither_report
+        from src.chainaudit.rules import compute_risk_score
 
-    report_path = os.path.join(REPORTS_DIR, f"{scan_id}.json")
-    if not os.path.exists(report_path):
-        return None
+        ok = run_slither(contract_path)
+        if not ok:
+            return None
 
-    with open(report_path) as f:
-        return json.load(f)
+        findings = parse_slither_report(target=contract_path)
+        risk_score = compute_risk_score(findings)
+
+        # ML predictions
+        try:
+            from src.chainaudit.ml.predictor import predictor
+            contract_size = os.path.getsize(contract_path)
+            for f in findings:
+                check = f.get("check", "").lower()
+                impact = f.get("impact", "Medium").strip().capitalize()
+                confidence = f.get("confidence", "Medium").strip().capitalize()
+                result = predictor.predict({"check": check, "impact": impact, "confidence": confidence}, contract_size)
+                f["ml_exploitability"] = result.get("exploitability", "unknown")
+                f["ml_confidence"] = result.get("confidence", 0.0)
+        except Exception:
+            pass
+
+        return {
+            "scan_id": scan_id,
+            "risk_score": risk_score,
+            "total_findings": len(findings),
+            "findings": findings,
+        }
+    except Exception as e:
+        return None
 
 
 @app.get("/")
