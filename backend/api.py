@@ -178,7 +178,7 @@ async def scan_rust(file: UploadFile = File(...)):
     try:
         rs_path.write_bytes(content)
 
-        from src.chainaudit.solana_scanner import scan_solana
+        from src.solana_scanner import scan_solana
         report = scan_solana(rs_path)
 
         if report.get("status") == "error":
@@ -328,7 +328,7 @@ async def scan_zip(file: UploadFile = File(...)):
 
         # --- Rust files — scan each file individually ---
         if has_rs:
-            from src.chainaudit.solana_scanner import scan_solana
+            from src.solana_scanner import scan_solana
 
             rs_extract_dir = os.path.join(scan_dir, "rust_files")
             os.makedirs(rs_extract_dir, exist_ok=True)
