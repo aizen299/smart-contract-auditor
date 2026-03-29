@@ -181,33 +181,33 @@ def mock_slither_findings():
 
 class TestRules:
     def test_map_finding_known_check(self):
-        from src.rules import map_finding
+        from src.chainaudit.rules import map_finding
         rule = map_finding("reentrancy-eth")
         assert rule.id == "reentrancy"
         assert rule.severity == "CRITICAL"
 
     def test_map_finding_unknown_returns_default(self):
-        from src.rules import map_finding
+        from src.chainaudit.rules import map_finding
         rule = map_finding("totally-unknown-check-xyz")
         assert rule.id == "unknown"
 
     def test_map_finding_fuzzy_match(self):
-        from src.rules import map_finding
+        from src.chainaudit.rules import map_finding
         rule = map_finding("reentrancy-benign")
         assert rule.id == "reentrancy"
 
     def test_compute_risk_score_empty(self):
-        from src.rules import compute_risk_score
+        from src.chainaudit.rules import compute_risk_score
         assert compute_risk_score([]) == 0
 
     def test_compute_risk_score_critical(self, mock_slither_findings):
-        from src.rules import compute_risk_score
+        from src.chainaudit.rules import compute_risk_score
         score = compute_risk_score(mock_slither_findings)
         assert score > 0
         assert score <= 100
 
     def test_compute_risk_score_low_only(self):
-        from src.rules import compute_risk_score
+        from src.chainaudit.rules import compute_risk_score
         findings = [
             {"severity": "LOW", "confidence": "Low", "check": "events-maths", "occurrences": 1}
         ]
@@ -216,7 +216,7 @@ class TestRules:
         assert score < 50
 
     def test_compute_risk_score_capped_at_100(self):
-        from src.rules import compute_risk_score
+        from src.chainaudit.rules import compute_risk_score
         findings = [
             {"severity": "CRITICAL", "confidence": "High", "check": "reentrancy-eth", "occurrences": 10}
         ] * 20
@@ -224,13 +224,13 @@ class TestRules:
         assert score <= 100
 
     def test_all_severity_rules_have_cvss(self):
-        from src.rules import RULES
+        from src.chainaudit.rules import RULES
         for rule_id, rule in RULES.items():
             assert hasattr(rule, "cvss"), f"Rule {rule_id} missing CVSS factors"
             assert rule.severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 
     def test_slither_to_rule_mapping_complete(self):
-        from src.rules import SLITHER_TO_RULE, RULES
+        from src.chainaudit.rules import SLITHER_TO_RULE, RULES
         for check, rule_id in SLITHER_TO_RULE.items():
             assert rule_id in RULES, f"SLITHER_TO_RULE maps '{check}' to '{rule_id}' which is not in RULES"
 
@@ -241,21 +241,21 @@ class TestRules:
 
 class TestScanner:
     def test_parse_slither_report_missing_file(self, tmp_path):
-        from src.scanner import parse_slither_report, SLITHER_JSON
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON
         if SLITHER_JSON.exists():
             SLITHER_JSON.unlink()
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_empty_detectors(self, tmp_path):
-        from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         SLITHER_JSON.write_text('{"success": true, "results": {"detectors": []}}')
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_with_findings(self, tmp_path):
-        from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,
@@ -276,7 +276,7 @@ class TestScanner:
         assert result[0]["severity"] == "CRITICAL"
 
     def test_parse_slither_report_deduplicates(self):
-        from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,
@@ -294,14 +294,14 @@ class TestScanner:
         assert titles.count("Reentrancy") == 1
 
     def test_parse_slither_report_invalid_json(self):
-        from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         SLITHER_JSON.write_text("not valid json {{{")
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_unknown_checks_skipped(self):
-        from src.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,
@@ -452,7 +452,7 @@ class TestAPI:
 class TestCLI:
     def _run(self, args: list[str]):
         from io import StringIO
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         import contextlib
 
         parser = build_parser()
@@ -469,33 +469,33 @@ class TestCLI:
         return exit_code, out.getvalue()
 
     def test_help(self):
-        from src.cli import build_parser
+        from src.chainaudit.cli import build_parser
         parser = build_parser()
         with pytest.raises(SystemExit) as exc:
             parser.parse_args(["--help"])
         assert exc.value.code == 0
 
     def test_scan_help(self):
-        from src.cli import build_parser
+        from src.chainaudit.cli import build_parser
         parser = build_parser()
         with pytest.raises(SystemExit) as exc:
             parser.parse_args(["scan", "--help"])
         assert exc.value.code == 0
 
     def test_collect_sol_files_single(self, valid_sol):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         files = _collect_sol_files(valid_sol, recursive=False)
         assert len(files) == 1
         assert files[0] == valid_sol
 
     def test_collect_sol_files_directory(self, sol_directory):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         files = _collect_sol_files(sol_directory, recursive=False)
         assert len(files) >= 1
         assert all(f.suffix == ".sol" for f in files)
 
     def test_collect_sol_files_recursive(self, tmp_path):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         subdir = tmp_path / "sub"
         subdir.mkdir()
         (tmp_path / "Root.sol").write_text("pragma solidity ^0.8.0; contract Root {}")
@@ -506,19 +506,19 @@ class TestCLI:
         assert "Sub.sol" in names
 
     def test_collect_sol_files_zip(self, sol_zip):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         files = _collect_sol_files(sol_zip, recursive=False)
         assert len(files) >= 1
         assert all(f.suffix == ".sol" for f in files)
 
     def test_collect_sol_files_nonexistent(self, tmp_path):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         with pytest.raises(SystemExit) as exc:
             _collect_sol_files(tmp_path / "nonexistent.sol", recursive=False)
         assert exc.value.code == 2
 
     def test_collect_sol_files_wrong_extension(self, tmp_path):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         f = tmp_path / "contract.txt"
         f.write_text("something")
         with pytest.raises(SystemExit) as exc:
@@ -526,13 +526,13 @@ class TestCLI:
         assert exc.value.code == 2
 
     def test_collect_sol_files_empty_directory(self, tmp_path):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         with pytest.raises(SystemExit) as exc:
             _collect_sol_files(tmp_path, recursive=False)
         assert exc.value.code == 0
 
     def test_collect_excludes_node_modules(self, tmp_path):
-        from src.cli import _collect_sol_files
+        from src.chainaudit.cli import _collect_sol_files
         node_dir = tmp_path / "node_modules"
         node_dir.mkdir()
         (node_dir / "Dep.sol").write_text("pragma solidity ^0.8.0; contract Dep {}")
@@ -543,31 +543,30 @@ class TestCLI:
         assert "Dep.sol" not in names
 
     def test_cmd_scan_rust_zip(self, rust_zip):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         parser = build_parser()
         args = parser.parse_args(["scan", str(rust_zip), "--json"])
         exit_code = cmd_scan(args)
         assert exit_code in (0, 1)  # 0 = no critical, 1 = critical found
 
     def test_cmd_scan_rust_zip_json_output(self, rust_zip, capsys):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         parser = build_parser()
         args = parser.parse_args(["scan", str(rust_zip), "--json"])
         cmd_scan(args)
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert "chain" in data
-        assert data["chain"] == "solana"
+        assert data["has_solana"] is True
 
     def test_cmd_scan_mixed_zip(self, mixed_zip):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         parser = build_parser()
         args = parser.parse_args(["scan", str(mixed_zip), "--json"])
         exit_code = cmd_scan(args)
         assert exit_code in (0, 1)
 
     def test_cmd_scan_mixed_zip_has_both_chains(self, mixed_zip, capsys):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         parser = build_parser()
         args = parser.parse_args(["scan", str(mixed_zip), "--json"])
         cmd_scan(args)
@@ -579,40 +578,40 @@ class TestCLI:
         chains = [f.get("chain") for f in files if f.get("chain")]
         assert "solana" in chains
 
-    @patch("src.cli.run_slither", return_value=True)
-    @patch("src.cli.parse_slither_report")
-    @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
+    @patch("src.chainaudit.cli.run_slither", return_value=True)
+    @patch("src.chainaudit.cli.parse_slither_report")
+    @patch("src.chainaudit.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
     def test_scan_file_success(self, mock_foundry, mock_parse, mock_slither, valid_sol, mock_slither_findings):
-        from src.cli import _scan_file
+        from src.chainaudit.cli import _scan_file
         mock_parse.return_value = mock_slither_findings
         result = _scan_file(valid_sol, ml_only=False)
         assert result["status"] == "success"
         assert result["risk_score"] > 0
         assert len(result["findings"]) == 3
 
-    @patch("src.cli.run_slither", return_value=False)
+    @patch("src.chainaudit.cli.run_slither", return_value=False)
     def test_scan_file_slither_failure(self, mock_slither, broken_sol):
-        from src.cli import _scan_file
+        from src.chainaudit.cli import _scan_file
         result = _scan_file(broken_sol, ml_only=False)
         assert result["status"] == "error"
         assert result["risk_score"] == 0
         assert result["findings"] == []
 
-    @patch("src.cli.run_slither", return_value=True)
-    @patch("src.cli.parse_slither_report")
-    @patch("src.cli.run_foundry_tests")
+    @patch("src.chainaudit.cli.run_slither", return_value=True)
+    @patch("src.chainaudit.cli.parse_slither_report")
+    @patch("src.chainaudit.cli.run_foundry_tests")
     def test_ml_only_skips_simulation(self, mock_foundry, mock_parse, mock_slither, valid_sol, mock_slither_findings):
-        from src.cli import _scan_file
+        from src.chainaudit.cli import _scan_file
         mock_parse.return_value = mock_slither_findings
         result = _scan_file(valid_sol, ml_only=True)
         mock_foundry.assert_not_called()
         assert result["exploit_simulation"]["stderr"] == "skipped"
 
-    @patch("src.cli.run_slither", return_value=True)
-    @patch("src.cli.parse_slither_report")
-    @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
+    @patch("src.chainaudit.cli.run_slither", return_value=True)
+    @patch("src.chainaudit.cli.parse_slither_report")
+    @patch("src.chainaudit.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
     def test_json_output_valid(self, mock_foundry, mock_parse, mock_slither, valid_sol, mock_slither_findings, capsys):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         mock_parse.return_value = mock_slither_findings
         parser = build_parser()
         args = parser.parse_args(["scan", str(valid_sol), "--json"])
@@ -622,22 +621,22 @@ class TestCLI:
         assert "risk_score" in data
         assert "findings" in data
 
-    @patch("src.cli.run_slither", return_value=True)
-    @patch("src.cli.parse_slither_report")
-    @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
+    @patch("src.chainaudit.cli.run_slither", return_value=True)
+    @patch("src.chainaudit.cli.parse_slither_report")
+    @patch("src.chainaudit.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
     def test_exit_code_critical(self, mock_foundry, mock_parse, mock_slither, valid_sol, mock_slither_findings):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         mock_parse.return_value = mock_slither_findings
         parser = build_parser()
         args = parser.parse_args(["scan", str(valid_sol)])
         exit_code = cmd_scan(args)
         assert exit_code == 1
 
-    @patch("src.cli.run_slither", return_value=True)
-    @patch("src.cli.parse_slither_report")
-    @patch("src.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
+    @patch("src.chainaudit.cli.run_slither", return_value=True)
+    @patch("src.chainaudit.cli.parse_slither_report")
+    @patch("src.chainaudit.cli.run_foundry_tests", return_value={"success": True, "stdout": "", "stderr": ""})
     def test_exit_code_no_critical(self, mock_foundry, mock_parse, mock_slither, valid_sol):
-        from src.cli import build_parser, cmd_scan
+        from src.chainaudit.cli import build_parser, cmd_scan
         mock_parse.return_value = [
             {"title": "Low Issue", "severity": "LOW", "description": "...",
              "fix": "...", "check": "events-maths", "impact": "Low",
@@ -693,7 +692,7 @@ class TestMLPredictor:
 
     def test_predictor_no_model_file(self, tmp_path, monkeypatch):
         try:
-            import ml.predictor as pred_module
+            import src.chainaudit.ml.predictor as pred_module
             monkeypatch.setattr(pred_module, "MODEL_PATH", tmp_path / "nonexistent.joblib")
             from src.chainaudit.ml.predictor import ExploitabilityPredictor
             p = ExploitabilityPredictor()
@@ -709,7 +708,7 @@ class TestMLPredictor:
 
 class TestSolanaRules:
     def test_all_rules_have_required_fields(self):
-        from src.solana_rules import SOLANA_RULES
+        from src.chainaudit.solana_rules import SOLANA_RULES
         for rule_id, rule in SOLANA_RULES.items():
             assert rule.id == rule_id
             assert rule.severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
@@ -719,22 +718,22 @@ class TestSolanaRules:
             assert rule.chain == "solana"
 
     def test_get_rule_known(self):
-        from src.solana_rules import get_rule
+        from src.chainaudit.solana_rules import get_rule
         rule = get_rule("missing-signer-check")
         assert rule.severity == "CRITICAL"
         assert rule.id == "missing-signer-check"
 
     def test_get_rule_unknown_returns_default(self):
-        from src.solana_rules import get_rule
+        from src.chainaudit.solana_rules import get_rule
         rule = get_rule("totally-unknown-xyz")
         assert rule.id == "unknown"
 
     def test_compute_solana_risk_score_empty(self):
-        from src.solana_rules import compute_solana_risk_score
+        from src.chainaudit.solana_rules import compute_solana_risk_score
         assert compute_solana_risk_score([]) == 0
 
     def test_compute_solana_risk_score_critical(self):
-        from src.solana_rules import compute_solana_risk_score
+        from src.chainaudit.solana_rules import compute_solana_risk_score
         findings = [
             {"severity": "CRITICAL", "confidence": "High"},
             {"severity": "HIGH", "confidence": "Medium"},
@@ -744,13 +743,13 @@ class TestSolanaRules:
         assert score <= 100
 
     def test_compute_solana_risk_score_capped(self):
-        from src.solana_rules import compute_solana_risk_score
+        from src.chainaudit.solana_rules import compute_solana_risk_score
         findings = [{"severity": "CRITICAL", "confidence": "High"}] * 50
         score = compute_solana_risk_score(findings)
         assert score <= 100
 
     def test_patterns_have_required_fields(self):
-        from src.solana_rules import SOLANA_PATTERNS, SOLANA_RULES
+        from src.chainaudit.solana_rules import SOLANA_PATTERNS, SOLANA_RULES
         for p in SOLANA_PATTERNS:
             assert "rule_id" in p
             assert "patterns" in p
@@ -836,37 +835,37 @@ pub struct Vault {
         return f
 
     def test_is_solana_project_rs_file(self, vulnerable_rs):
-        from src.solana_scanner import is_solana_project
+        from src.chainaudit.solana_scanner import is_solana_project
         assert is_solana_project(vulnerable_rs) is True
 
     def test_is_solana_project_sol_file(self, empty_sol):
-        from src.solana_scanner import is_solana_project
+        from src.chainaudit.solana_scanner import is_solana_project
         assert is_solana_project(empty_sol) is False
 
     def test_is_solana_project_directory_with_rs(self, tmp_path):
-        from src.solana_scanner import is_solana_project
+        from src.chainaudit.solana_scanner import is_solana_project
         (tmp_path / "lib.rs").write_text("fn main() {}")
         assert is_solana_project(tmp_path) is True
 
     def test_is_solana_project_empty_directory(self, tmp_path):
-        from src.solana_scanner import is_solana_project
+        from src.chainaudit.solana_scanner import is_solana_project
         assert is_solana_project(tmp_path) is False
 
     def test_collect_rs_files_single(self, vulnerable_rs):
-        from src.solana_scanner import _collect_rs_files
+        from src.chainaudit.solana_scanner import _collect_rs_files
         files = _collect_rs_files(vulnerable_rs)
         assert len(files) == 1
         assert files[0] == vulnerable_rs
 
     def test_collect_rs_files_directory(self, tmp_path):
-        from src.solana_scanner import _collect_rs_files
+        from src.chainaudit.solana_scanner import _collect_rs_files
         (tmp_path / "a.rs").write_text("fn a() {}")
         (tmp_path / "b.rs").write_text("fn b() {}")
         files = _collect_rs_files(tmp_path)
         assert len(files) == 2
 
     def test_collect_rs_files_excludes_target(self, tmp_path):
-        from src.solana_scanner import _collect_rs_files
+        from src.chainaudit.solana_scanner import _collect_rs_files
         target_dir = tmp_path / "target" / "debug"
         target_dir.mkdir(parents=True)
         (target_dir / "build.rs").write_text("fn main() {}")
@@ -877,37 +876,37 @@ pub struct Vault {
         assert "build.rs" not in names
 
     def test_pattern_scan_detects_unsafe(self, vulnerable_rs):
-        from src.solana_scanner import run_pattern_scan
+        from src.chainaudit.solana_scanner import run_pattern_scan
         findings = run_pattern_scan(vulnerable_rs)
         checks = [f["check"] for f in findings]
         assert "unsafe-code" in checks
 
     def test_pattern_scan_detects_insecure_randomness(self, vulnerable_rs):
-        from src.solana_scanner import run_pattern_scan
+        from src.chainaudit.solana_scanner import run_pattern_scan
         findings = run_pattern_scan(vulnerable_rs)
         checks = [f["check"] for f in findings]
         assert "insecure-randomness" in checks
 
     def test_pattern_scan_detects_integer_overflow(self, vulnerable_rs):
-        from src.solana_scanner import run_pattern_scan
+        from src.chainaudit.solana_scanner import run_pattern_scan
         findings = run_pattern_scan(vulnerable_rs)
         checks = [f["check"] for f in findings]
         assert "integer-overflow" in checks
 
     def test_pattern_scan_safe_contract_no_overflow(self, safe_rs):
-        from src.solana_scanner import run_pattern_scan
+        from src.chainaudit.solana_scanner import run_pattern_scan
         findings = run_pattern_scan(safe_rs)
         checks = [f["check"] for f in findings]
         assert "integer-overflow" not in checks
 
     def test_pattern_scan_safe_contract_no_unsafe(self, safe_rs):
-        from src.solana_scanner import run_pattern_scan
+        from src.chainaudit.solana_scanner import run_pattern_scan
         findings = run_pattern_scan(safe_rs)
         checks = [f["check"] for f in findings]
         assert "unsafe-code" not in checks
 
     def test_scan_solana_returns_success(self, vulnerable_rs):
-        from src.solana_scanner import scan_solana
+        from src.chainaudit.solana_scanner import scan_solana
         result = scan_solana(vulnerable_rs)
         assert result["status"] == "success"
         assert result["chain"] == "solana"
@@ -915,12 +914,12 @@ pub struct Vault {
         assert result["risk_score"] > 0
 
     def test_scan_solana_non_rust_returns_error(self, empty_sol):
-        from src.solana_scanner import scan_solana
+        from src.chainaudit.solana_scanner import scan_solana
         result = scan_solana(empty_sol)
         assert result["status"] == "error"
 
     def test_scan_solana_findings_have_required_fields(self, vulnerable_rs):
-        from src.solana_scanner import scan_solana
+        from src.chainaudit.solana_scanner import scan_solana
         result = scan_solana(vulnerable_rs)
         for f in result["findings"]:
             assert "title" in f
@@ -932,18 +931,18 @@ pub struct Vault {
             assert f["chain"] == "solana"
 
     def test_scan_solana_risk_score_bounded(self, vulnerable_rs):
-        from src.solana_scanner import scan_solana
+        from src.chainaudit.solana_scanner import scan_solana
         result = scan_solana(vulnerable_rs)
         assert 0 <= result["risk_score"] <= 100
 
     def test_detect_anchor_project(self, tmp_path):
-        from src.solana_scanner import detect_anchor_project
+        from src.chainaudit.solana_scanner import detect_anchor_project
         cargo_toml = tmp_path / "Cargo.toml"
         cargo_toml.write_text('[dependencies]\nanchor-lang = "0.29.0"\n')
         assert detect_anchor_project(tmp_path) is True
 
     def test_detect_non_anchor_project(self, tmp_path):
-        from src.solana_scanner import detect_anchor_project
+        from src.chainaudit.solana_scanner import detect_anchor_project
         cargo_toml = tmp_path / "Cargo.toml"
         cargo_toml.write_text('[dependencies]\nserde = "1.0"\n')
         assert detect_anchor_project(tmp_path) is False
