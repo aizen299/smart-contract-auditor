@@ -31,3 +31,5 @@ ml/smartbugs/
 backend/dist/
 backend/build/
 backend/*.egg-info/
+backend/chainaudit-*/
+backend/build/
