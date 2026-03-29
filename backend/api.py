@@ -57,7 +57,7 @@ def is_valid_rust(content: bytes) -> bool:
 
 def run_scan(contract_path: str, scan_id: str) -> dict:
     result = subprocess.run(
-        ["python", "-m", "src.main", "--target", contract_path, "--scan-id", scan_id],
+        ["python", "-m", "src.chainaudit.main", "--target", contract_path, "--scan-id", scan_id],
         cwd=BASE_DIR,
         capture_output=True,
         text=True,
