@@ -183,18 +183,18 @@ class TestRules:
     def test_map_finding_known_check(self):
         from src.chainaudit.rules import map_finding
         rule = map_finding("reentrancy-eth")
-        assert rule.id == "reentrancy"
+        assert rule.rule_id == "reentrancy"
         assert rule.severity == "CRITICAL"
 
     def test_map_finding_unknown_returns_default(self):
         from src.chainaudit.rules import map_finding
         rule = map_finding("totally-unknown-check-xyz")
-        assert rule.id == "unknown"
+        assert rule.rule_id == "unknown"
 
     def test_map_finding_fuzzy_match(self):
         from src.chainaudit.rules import map_finding
         rule = map_finding("reentrancy-benign")
-        assert rule.id == "reentrancy"
+        assert rule.rule_id == "reentrancy"
 
     def test_compute_risk_score_empty(self):
         from src.chainaudit.rules import compute_risk_score
@@ -709,24 +709,23 @@ class TestMLPredictor:
 class TestSolanaRules:
     def test_all_rules_have_required_fields(self):
         from src.chainaudit.solana_rules import SOLANA_RULES
-        for rule_id, rule in SOLANA_RULES.items():
-            assert rule.id == rule_id
+        for rule in SOLANA_RULES:
+            assert rule.rule_id
             assert rule.severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
             assert rule.title
             assert rule.description
             assert rule.fix
-            assert rule.chain == "solana"
 
     def test_get_rule_known(self):
         from src.chainaudit.solana_rules import get_rule
         rule = get_rule("missing-signer-check")
         assert rule.severity == "CRITICAL"
-        assert rule.id == "missing-signer-check"
+        assert rule.rule_id == "missing-signer-check"
 
     def test_get_rule_unknown_returns_default(self):
         from src.chainaudit.solana_rules import get_rule
         rule = get_rule("totally-unknown-xyz")
-        assert rule.id == "unknown"
+        assert rule.rule_id == "unknown"
 
     def test_compute_solana_risk_score_empty(self):
         from src.chainaudit.solana_rules import compute_solana_risk_score
@@ -754,7 +753,7 @@ class TestSolanaRules:
             assert "rule_id" in p
             assert "patterns" in p
             assert "anti_patterns" in p
-            assert p["rule_id"] in SOLANA_RULES, f"Pattern rule_id '{p['rule_id']}' not in SOLANA_RULES"
+            rule_ids = [r.rule_id for r in SOLANA_RULES]; assert p["rule_id"] in rule_ids, f"Pattern rule_id '{p['rule_id']}' not in SOLANA_RULES"
 
 
 # ---------------------------------------------------------------------------

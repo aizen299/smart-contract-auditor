@@ -30,6 +30,9 @@ class Rule:
         integrity="low",
         availability="low",
     ))
+    @property
+    def rule_id(self):
+        return self.id
 
 
 # =========================
