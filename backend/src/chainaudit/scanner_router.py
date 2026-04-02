@@ -49,8 +49,8 @@ def route_scan_source(source: str, filename: str, ml_only: bool = False) -> dict
 
 def _scan_evm(target: Path, chain: str = "ethereum", ml_only: bool = False) -> dict:
     """Run EVM scan via Slither + L2 rules + ML predictions."""
-    from .scanner import run_slither, parse_slither_report
-    from .rules import compute_risk_score
+    from .evm_scanner import run_slither, parse_slither_report
+    from .evm_rules import compute_risk_score
 
     os.chdir(_BACKEND_DIR)
     ok = run_slither(str(target))

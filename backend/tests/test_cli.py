@@ -181,33 +181,33 @@ def mock_slither_findings():
 
 class TestRules:
     def test_map_finding_known_check(self):
-        from src.chainaudit.rules import map_finding
+        from src.chainaudit.evm_rules import map_finding
         rule = map_finding("reentrancy-eth")
         assert rule.rule_id == "reentrancy"
         assert rule.severity == "CRITICAL"
 
     def test_map_finding_unknown_returns_default(self):
-        from src.chainaudit.rules import map_finding
+        from src.chainaudit.evm_rules import map_finding
         rule = map_finding("totally-unknown-check-xyz")
         assert rule.rule_id == "unknown"
 
     def test_map_finding_fuzzy_match(self):
-        from src.chainaudit.rules import map_finding
+        from src.chainaudit.evm_rules import map_finding
         rule = map_finding("reentrancy-benign")
         assert rule.rule_id == "reentrancy"
 
     def test_compute_risk_score_empty(self):
-        from src.chainaudit.rules import compute_risk_score
+        from src.chainaudit.evm_rules import compute_risk_score
         assert compute_risk_score([]) == 0
 
     def test_compute_risk_score_critical(self, mock_slither_findings):
-        from src.chainaudit.rules import compute_risk_score
+        from src.chainaudit.evm_rules import compute_risk_score
         score = compute_risk_score(mock_slither_findings)
         assert score > 0
         assert score <= 100
 
     def test_compute_risk_score_low_only(self):
-        from src.chainaudit.rules import compute_risk_score
+        from src.chainaudit.evm_rules import compute_risk_score
         findings = [
             {"severity": "LOW", "confidence": "Low", "check": "events-maths", "occurrences": 1}
         ]
@@ -216,7 +216,7 @@ class TestRules:
         assert score < 50
 
     def test_compute_risk_score_capped_at_100(self):
-        from src.chainaudit.rules import compute_risk_score
+        from src.chainaudit.evm_rules import compute_risk_score
         findings = [
             {"severity": "CRITICAL", "confidence": "High", "check": "reentrancy-eth", "occurrences": 10}
         ] * 20
@@ -224,13 +224,13 @@ class TestRules:
         assert score <= 100
 
     def test_all_severity_rules_have_cvss(self):
-        from src.chainaudit.rules import RULES
+        from src.chainaudit.evm_rules import RULES
         for rule_id, rule in RULES.items():
             assert hasattr(rule, "cvss"), f"Rule {rule_id} missing CVSS factors"
             assert rule.severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 
     def test_slither_to_rule_mapping_complete(self):
-        from src.chainaudit.rules import SLITHER_TO_RULE, RULES
+        from src.chainaudit.evm_rules import SLITHER_TO_RULE, RULES
         for check, rule_id in SLITHER_TO_RULE.items():
             assert rule_id in RULES, f"SLITHER_TO_RULE maps '{check}' to '{rule_id}' which is not in RULES"
 
@@ -241,21 +241,21 @@ class TestRules:
 
 class TestScanner:
     def test_parse_slither_report_missing_file(self, tmp_path):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON
         if SLITHER_JSON.exists():
             SLITHER_JSON.unlink()
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_empty_detectors(self, tmp_path):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         SLITHER_JSON.write_text('{"success": true, "results": {"detectors": []}}')
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_with_findings(self, tmp_path):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,
@@ -276,7 +276,7 @@ class TestScanner:
         assert result[0]["severity"] == "CRITICAL"
 
     def test_parse_slither_report_deduplicates(self):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,
@@ -294,14 +294,14 @@ class TestScanner:
         assert titles.count("Reentrancy") == 1
 
     def test_parse_slither_report_invalid_json(self):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         SLITHER_JSON.write_text("not valid json {{{")
         result = parse_slither_report()
         assert result == []
 
     def test_parse_slither_report_unknown_checks_skipped(self):
-        from src.chainaudit.scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
+        from src.chainaudit.evm_scanner import parse_slither_report, SLITHER_JSON, REPORTS_DIR
         REPORTS_DIR.mkdir(exist_ok=True)
         data = {
             "success": True,

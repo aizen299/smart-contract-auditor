@@ -4,9 +4,9 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from src.chainaudit.scanner import run_slither, parse_slither_report
+from src.chainaudit.evm_scanner import run_slither, parse_slither_report
 from src.chainaudit.exploit_simulator import run_foundry_tests
-from src.chainaudit.rules import compute_risk_score
+from src.chainaudit.evm_rules import compute_risk_score
 from src.chainaudit.report_gen import save_json, save_html
 
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -2,7 +2,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from src.chainaudit.rules import map_finding, detect_l2_chain, get_l2_rules
+from src.chainaudit.evm_rules import map_finding, detect_l2_chain, get_l2_rules
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = Path(tempfile.gettempdir()) / "chainaudit_reports"
@@ -17,7 +17,11 @@ def run_slither(target: str) -> bool:
         SLITHER_JSON.unlink()
 
     # Use absolute path — works on Windows and Mac regardless of cwd
-    target_abs = str(Path(target).resolve())
+    target_path = Path(target).resolve()
+    target_abs = str(target_path)
+
+    # Ensure the parent directory exists before setting it as cwd
+    cwd = str(target_path.parent) if target_path.parent.exists() else None
 
     cmd = ["slither", target_abs, "--json", str(SLITHER_JSON)]
     result = subprocess.run(
@@ -25,7 +29,7 @@ def run_slither(target: str) -> bool:
         capture_output=True,
         text=True,
         timeout=90,
-        cwd=str(Path(target_abs).parent),  # run from contract's directory
+        cwd=cwd,  # run from contract's directory if it exists
     )
 
     if not SLITHER_JSON.exists():

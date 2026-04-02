@@ -21,8 +21,8 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from src.chainaudit.scanner import run_slither, parse_slither_report
-from src.chainaudit.rules import compute_risk_score
+from src.chainaudit.evm_scanner import run_slither, parse_slither_report
+from src.chainaudit.evm_rules import compute_risk_score
 from src.chainaudit.exploit_simulator import run_foundry_tests
 
 try:
