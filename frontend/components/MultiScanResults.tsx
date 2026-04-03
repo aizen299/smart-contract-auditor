@@ -69,10 +69,92 @@ function getRiskLabelText(score: number): string {
   return "Minimal Risk";
 }
 
+// ─── Chain display config ─────────────────────────────────────────────────────
+
+const CHAIN_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  solana: { label: "SOLANA", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" },
+  ethereum: { label: "ETHEREUM", color: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/20" },
+  arbitrum: { label: "ARBITRUM", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" },
+  optimism: { label: "OPTIMISM", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20" },
+  base: { label: "BASE", color: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" },
+  polygon: { label: "POLYGON", color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
+  bnb: { label: "BNB", color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20" },
+  avalanche: { label: "AVAX", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20" },
+  l2: { label: "L2", color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20" },
+};
+
+function getChainConfig(chain: string) {
+  return CHAIN_CONFIG[chain.toLowerCase()] ?? {
+    label: chain.toUpperCase(),
+    color: "text-violet-400",
+    bg: "bg-violet-500/10",
+    border: "border-violet-500/20"
+  };
+}
+
+// Inline badge for file rows
+function ChainBadge({ chain, isAnchor }: { chain: string; isAnchor?: boolean }) {
+  const cfg = getChainConfig(chain);
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.color} border ${cfg.border} font-semibold tracking-wider uppercase flex-shrink-0`}>
+      {cfg.label}{chain === "solana" && isAnchor ? " · ANCHOR" : ""}
+    </span>
+  );
+}
+
+// Inline badge for individual findings
+function FindingChainBadge({ chain }: { chain: string }) {
+  const cfg = getChainConfig(chain);
+  return (
+    <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.color} border ${cfg.border} font-semibold tracking-wider uppercase`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+// Export HTML chain tag (inline styles for PDF)
+function exportChainTag(chain: string, isAnchor?: boolean): string {
+  const EXPORT_CHAIN_STYLES: Record<string, { bg: string; color: string; border: string }> = {
+    solana: { bg: "#2d1f00", color: "#f59e0b", border: "#92400e" },
+    ethereum: { bg: "#1e1040", color: "#a78bfa", border: "#4c1d95" },
+    arbitrum: { bg: "#0a1a3d", color: "#60a5fa", border: "#1e3a8a" },
+    optimism: { bg: "#2d0a0a", color: "#f87171", border: "#7f1d1d" },
+    base: { bg: "#0a1f2d", color: "#38bdf8", border: "#0c4a6e" },
+    polygon: { bg: "#1a0a2d", color: "#c084fc", border: "#581c87" },
+    bnb: { bg: "#2d2500", color: "#facc15", border: "#713f12" },
+    avalanche: { bg: "#2d0a0a", color: "#f87171", border: "#7f1d1d" },
+    l2: { bg: "#0a2d2d", color: "#22d3ee", border: "#164e63" },
+  };
+  const s = EXPORT_CHAIN_STYLES[chain.toLowerCase()] ?? EXPORT_CHAIN_STYLES.ethereum;
+  const label = CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase();
+  const suffix = chain === "solana" && isAnchor ? " · ANCHOR" : "";
+  return `<span style="font-size:9px;padding:2px 8px;border-radius:20px;background:${s.bg};color:${s.color};border:1px solid ${s.border};margin-left:8px;">${label}${suffix}</span>`;
+}
+
+function exportFindingChainTag(chain: string): string {
+  const EXPORT_CHAIN_STYLES: Record<string, { bg: string; color: string; border: string }> = {
+    solana: { bg: "#2d1f00", color: "#f59e0b", border: "#92400e" },
+    ethereum: { bg: "#1e1040", color: "#a78bfa", border: "#4c1d95" },
+    arbitrum: { bg: "#0a1a3d", color: "#60a5fa", border: "#1e3a8a" },
+    optimism: { bg: "#2d0a0a", color: "#f87171", border: "#7f1d1d" },
+    base: { bg: "#0a1f2d", color: "#38bdf8", border: "#0c4a6e" },
+    polygon: { bg: "#1a0a2d", color: "#c084fc", border: "#581c87" },
+    bnb: { bg: "#2d2500", color: "#facc15", border: "#713f12" },
+    avalanche: { bg: "#2d0a0a", color: "#f87171", border: "#7f1d1d" },
+    l2: { bg: "#0a2d2d", color: "#22d3ee", border: "#164e63" },
+  };
+  const s = EXPORT_CHAIN_STYLES[chain.toLowerCase()] ?? EXPORT_CHAIN_STYLES.ethereum;
+  const label = CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase();
+  return `<span style="font-size:8px;padding:1px 6px;border-radius:20px;background:${s.bg};color:${s.color};border:1px solid ${s.border};margin-left:6px;">${label}</span>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function FileCard({ file, index }: { file: FileResult; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const risk = getRiskColor(file.risk_score);
-  const isSolana = file.chain === "solana";
+  const fileChain = file.chain ?? "ethereum";
+  const isSolana = fileChain === "solana";
   const isAnchor = file.is_anchor === true;
 
   return (
@@ -92,12 +174,7 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isSolana ? "text-amber-400/50" : "text-white/30"}`} />
           <span className="text-sm text-white/80 truncate">{file.file}</span>
-          {/* Chain badge */}
-          {isSolana && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold tracking-wider uppercase flex-shrink-0">
-              SOLANA{isAnchor ? " · ANCHOR" : ""}
-            </span>
-          )}
+          <ChainBadge chain={fileChain} isAnchor={isAnchor} />
         </div>
 
         {file.status === "success" ? (
@@ -124,29 +201,28 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
 
       {expanded && file.findings.length > 0 && (
         <div className="border-t border-white/[0.05] px-5 py-4 space-y-3">
-          {file.findings.map((finding, i) => (
-            <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-              <span className="text-[10px] font-mono text-white/25 mt-0.5">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-sm text-white/80">{finding.title}</span>
-                  <SeverityBadge severity={finding.severity} size="sm" />
-                  {finding.chain === "solana" && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold tracking-wider uppercase">
-                      SOLANA
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-white/40 leading-relaxed">{finding.description}</p>
-                <div className="mt-2 rounded-lg bg-[#00ff88]/[0.04] border border-[#00ff88]/[0.10] p-2.5">
-                  <p className="text-[10px] text-[#00ff88]/60 uppercase tracking-widest mb-1">Fix</p>
-                  <p className="text-xs text-white/50">{finding.fix}</p>
+          {file.findings.map((finding, i) => {
+            const findingChain = finding.chain ?? fileChain;
+            return (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                <span className="text-[10px] font-mono text-white/25 mt-0.5">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-sm text-white/80">{finding.title}</span>
+                    <SeverityBadge severity={finding.severity} size="sm" />
+                    <FindingChainBadge chain={findingChain} />
+                  </div>
+                  <p className="text-xs text-white/40 leading-relaxed">{finding.description}</p>
+                  <div className="mt-2 rounded-lg bg-[#00ff88]/[0.04] border border-[#00ff88]/[0.10] p-2.5">
+                    <p className="text-[10px] text-[#00ff88]/60 uppercase tracking-widest mb-1">Fix</p>
+                    <p className="text-xs text-white/50">{finding.fix}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -165,12 +241,14 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
   const handleExport = useCallback(() => {
     const SEVERITY_COLORS: Record<string, { bg: string; text: string; border: string }> = {
       CRITICAL: { bg: "#2d0a0a", text: "#f87171", border: "#7f1d1d" },
-      HIGH:     { bg: "#2d1500", text: "#fb923c", border: "#7c2d12" },
-      MEDIUM:   { bg: "#2d2500", text: "#facc15", border: "#713f12" },
-      LOW:      { bg: "#0a1a2d", text: "#60a5fa", border: "#1e3a5f" },
+      HIGH: { bg: "#2d1500", text: "#fb923c", border: "#7c2d12" },
+      MEDIUM: { bg: "#2d2500", text: "#facc15", border: "#713f12" },
+      LOW: { bg: "#0a1a2d", text: "#60a5fa", border: "#1e3a5f" },
     };
 
     const fileSectionsHtml = result.files.map((file) => {
+      const fileChain = file.chain ?? "ethereum";
+
       if (file.status !== "success" || file.findings.length === 0) {
         return `
           <div style="margin-bottom:24px;border:1px solid #1a1a1a;border-radius:10px;overflow:hidden;">
@@ -184,9 +262,7 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       }
 
       const riskColor = getRiskColorHex(file.risk_score);
-      const chainTag = file.chain === "solana"
-        ? `<span style="font-size:9px;padding:2px 8px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:8px;">SOLANA${file.is_anchor ? " · ANCHOR" : ""}</span>`
-        : "";
+      const chainTag = exportChainTag(fileChain, file.is_anchor);
 
       const order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
       const grouped: Record<string, Finding[]> = { CRITICAL: [], HIGH: [], MEDIUM: [], LOW: [] };
@@ -195,9 +271,8 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       const findingsHtml = order.flatMap(sev =>
         grouped[sev].map((f, i) => {
           const c = SEVERITY_COLORS[sev] || SEVERITY_COLORS.LOW;
-          const findingChainTag = f.chain === "solana"
-            ? `<span style="font-size:8px;padding:1px 6px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:6px;">SOLANA</span>`
-            : "";
+          const findingChain = f.chain ?? fileChain;
+          const findingChainTag = exportFindingChainTag(findingChain);
           return `
             <div style="margin-bottom:12px;border:1px solid ${c.border};border-radius:8px;overflow:hidden;">
               <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${c.bg}30;border-bottom:1px solid ${c.border}40;">
@@ -237,9 +312,8 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
 
     const fileRowsHtml = result.files.map(f => {
       const rc = getRiskColorHex(f.risk_score);
-      const chainBadge = f.chain === "solana"
-        ? `<span style="font-size:8px;padding:1px 5px;border-radius:10px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:6px;">SOLANA</span>`
-        : "";
+      const rowChain = f.chain ?? "ethereum";
+      const chainBadge = exportChainTag(rowChain, f.is_anchor).replace('margin-left:8px', 'margin-left:6px');
       return `
         <tr>
           <td style="padding:8px 12px;font-size:12px;color:#ccc;border-bottom:1px solid #1a1a1a;">${f.file}${chainBadge}</td>
@@ -267,7 +341,7 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       </div>
       <div style="display:flex;gap:12px;margin-bottom:32px;">
         ${[["Files", result.total_files], ["Scanned", result.scanned], ["Total Issues", result.total_findings]]
-          .map(([label, val]) => `
+        .map(([label, val]) => `
           <div style="flex:1;text-align:center;padding:14px 8px;background:#111;border:1px solid #1a1a1a;border-radius:8px;">
             <div style="font-size:28px;font-weight:700;font-family:monospace;color:#e5e5e5;">${val}</div>
             <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#555;margin-top:4px;">${label}</div>
@@ -315,8 +389,8 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
                 SOLANA
               </span>
             )}
-            {hasEVM && hasSolana && (
-              <span className="px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
+            {hasEVM && (
+              <span className="px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-semibold">
                 EVM
               </span>
             )}

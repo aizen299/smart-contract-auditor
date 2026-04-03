@@ -270,10 +270,14 @@ async def scan_zip(file: UploadFile = File(...)):
                 })
                 continue
 
-            file_scan_id = f"{scan_id}_{idx}"
-            file_dir     = scan_dir / f"sol_{idx}"
+            file_scan_id  = f"{scan_id}_{idx}"
+            file_dir      = scan_dir / f"sol_{idx}"
             file_dir.mkdir(exist_ok=True)
-            contract_path = file_dir / "input.sol"
+
+            # FIX: save with original basename (not "input.sol") so that
+            # detect_chain_from_file() can read the source content and
+            # correctly identify the chain (Arbitrum, Optimism, etc.)
+            contract_path = file_dir / basename
             contract_path.write_bytes(file_content)
 
             try:
@@ -311,9 +315,9 @@ async def scan_zip(file: UploadFile = File(...)):
             rs_dir.mkdir(exist_ok=True)
 
             for rs_name in rs_names:
-                rs_content = zf.read(rs_name)
+                rs_content  = zf.read(rs_name)
                 rs_basename = os.path.basename(rs_name)
-                rs_path = rs_dir / rs_basename
+                rs_path     = rs_dir / rs_basename
                 rs_path.write_bytes(rs_content)
 
                 if not is_valid_rust(rs_content):
@@ -345,15 +349,15 @@ async def scan_zip(file: UploadFile = File(...)):
                     })
 
         return {
-            "scan_id":           scan_id,
-            "type":              "multi",
-            "total_files":       len(sol_names) + len(rs_names),
-            "scanned":           sum(1 for r in results if r["status"] == "success"),
+            "scan_id":            scan_id,
+            "type":               "multi",
+            "total_files":        len(sol_names) + len(rs_names),
+            "scanned":            sum(1 for r in results if r["status"] == "success"),
             "overall_risk_score": total_risk,
-            "total_findings":    len(all_findings),
-            "has_solana":        bool(rs_names),
-            "has_evm":           bool(sol_names),
-            "files":             results,
+            "total_findings":     len(all_findings),
+            "has_solana":         bool(rs_names),
+            "has_evm":            bool(sol_names),
+            "files":              results,
         }
 
     finally:

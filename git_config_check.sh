@@ -1,0 +1,1 @@
+git config --list --show-origin | grep -E "gpg|sign|ssh"
