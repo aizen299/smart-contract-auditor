@@ -2,7 +2,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from src.chainaudit.evm_rules import map_finding, detect_l2_chain, get_l2_rules
+from chainaudit.evm_rules import map_finding, detect_l2_chain, get_l2_rules
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = Path(tempfile.gettempdir()) / "chainaudit_reports"

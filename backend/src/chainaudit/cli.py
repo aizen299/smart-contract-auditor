@@ -16,14 +16,42 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-# Ensure backend/ is always on the path regardless of where CLI is invoked from
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-if str(_BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_DIR))
+# ---------------------------------------------------------------------------
+# FIX: Import resolution for both installed package AND repo dev mode
+#
+# Problem: The original code used `from chainaudit.xxx import ...` which
+# only works when running directly from the repo root (where `src/` exists as
+# a real directory on the filesystem). After `pip install`, the package is
+# installed as `chainaudit` — there is no `src` package at all, so Python
+# raises ModuleNotFoundError: No module named 'src'.
+#
+# Fix: Import as `chainaudit.xxx` (the installed package name), which works
+# in both cases:
+#   - Installed via pip:    resolves to site-packages/chainaudit/
+#   - Dev mode (pip install -e .):  resolves to src/chainaudit/ via .pth file
+#
+# The sys.path manipulation below is ONLY kept as a last-resort fallback for
+# running cli.py directly as a script (e.g. `python src/chainaudit/cli.py`).
+# It is NOT needed for the `chainaudit` console_scripts entrypoint.
+# ---------------------------------------------------------------------------
 
-from src.chainaudit.evm_scanner import run_slither, parse_slither_report
-from src.chainaudit.evm_rules import compute_risk_score
-from src.chainaudit.exploit_simulator import run_foundry_tests
+def _ensure_importable() -> None:
+    """
+    Fallback path injection — only activates when cli.py is run directly
+    as a script rather than through the installed `chainaudit` entrypoint.
+    Detected by checking if `chainaudit` is already importable.
+    """
+    try:
+        import chainaudit  # noqa: F401 — already installed, nothing to do
+    except ImportError:
+        # Running as a raw script from repo root — add backend/ to sys.path
+        _backend_dir = Path(__file__).resolve().parent.parent.parent
+        if str(_backend_dir) not in sys.path:
+            sys.path.insert(0, str(_backend_dir))
+
+_ensure_importable()
+
+from chainaudit.scanner_router import route_scan, route_zip_scan  # noqa: E402
 
 try:
     from rich.console import Console
@@ -36,7 +64,7 @@ except ImportError:
     HAS_RICH = False
 
 try:
-    from src.chainaudit.ml.predictor import predictor as ml_predictor
+    from chainaudit.ml.predictor import predictor as ml_predictor
     HAS_ML = True
 except ImportError:
     HAS_ML = False
@@ -48,6 +76,20 @@ SEVERITY_COLORS = {
     "HIGH": "bold orange1",
     "MEDIUM": "bold yellow",
     "LOW": "bold cyan",
+}
+
+# Chain display labels and rich colors for CLI output
+_CHAIN_DISPLAY: dict[str, tuple[str, str]] = {
+    # chain_key: (label, rich_color)
+    "solana":    ("SOLANA",    "yellow"),
+    "ethereum":  ("ETHEREUM",  "cyan"),
+    "arbitrum":  ("ARBITRUM",  "blue"),
+    "optimism":  ("OPTIMISM",  "red"),
+    "base":      ("BASE",      "bright_blue"),
+    "polygon":   ("POLYGON",   "magenta"),
+    "bnb":       ("BNB",       "bright_yellow"),
+    "avalanche": ("AVAX",      "red"),
+    "l2":        ("L2",        "cyan"),
 }
 
 EXIT_CRITICAL = 1
@@ -96,6 +138,31 @@ def _risk_style(score: int) -> str:
     if score >= 40: return "bold yellow"
     if score >= 20: return "bold cyan"
     return "bold green"
+
+
+def _chain_label(chain: str) -> str:
+    """Return display label for a chain key, e.g. 'arbitrum' → 'ARBITRUM'."""
+    return _CHAIN_DISPLAY.get(chain.lower(), (chain.upper(), "cyan"))[0]
+
+
+def _chain_color(chain: str) -> str:
+    """Return rich color string for a chain key."""
+    return _CHAIN_DISPLAY.get(chain.lower(), (chain.upper(), "cyan"))[1]
+
+
+def _chain_suffix(chain: str, is_anchor: bool = False) -> str:
+    """
+    Return the chain suffix string for report headers.
+    Ethereum returns empty string (it's the default, no need to annotate).
+    All other chains return '  · LABEL' (plus '  · ANCHOR' for Solana anchors).
+    """
+    label = _CHAIN_DISPLAY.get(chain.lower(), (chain.upper() if chain else "", "cyan"))[0]
+    if not label or chain.lower() == "ethereum":
+        return ""
+    suffix = f"  · {label}"
+    if chain.lower() == "solana" and is_anchor:
+        suffix += "  · ANCHOR"
+    return suffix
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +240,6 @@ def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
                 evm_check = _SOLANA_TO_EVM_CHECK.get(rule_id, "")
 
                 if evm_check and HAS_ML:
-                    # Solana findings only have 'confidence', use it for both fields
                     conf_raw = f.get("confidence", "Medium")
                     level = _normalize_level(conf_raw)
                     evm_finding = {
@@ -185,7 +251,6 @@ def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
                     f["ml_exploitability"] = result.get("exploitability", "unknown")
                     f["ml_confidence"]     = result.get("confidence", 0.0)
                 else:
-                    # No mapping — fall back to severity-based estimate
                     sev = f.get("severity", "LOW")
                     f["ml_exploitability"] = sev
                     f["ml_confidence"]     = _SEVERITY_CONFIDENCE.get(sev, 0.5)
@@ -196,15 +261,13 @@ def _add_ml_predictions(findings: list[dict], contract_size: int = 0,
                     raw_check = f.get("check", "").lower()
                     check = _SLITHER_TO_ML.get(raw_check, raw_check)
 
-                    # ✅ Read 'impact' from the 'impact' field (NOT confidence)
-                    # ✅ Normalize to title case that the model expects
                     impact     = f.get("impact", "Medium").strip().capitalize()
                     confidence = f.get("confidence", "Medium").strip().capitalize()
 
                     evm_finding = {
                         "check":      check,
-                        "impact":     impact,      # e.g. "Medium"
-                        "confidence": confidence,  # e.g. "Medium"
+                        "impact":     impact,
+                        "confidence": confidence,
                     }
                     result = ml_predictor.predict(evm_finding, contract_size)
                     f["ml_exploitability"] = result.get("exploitability", "unknown")
@@ -302,47 +365,19 @@ def _collect_rs_files_from_dir(target: Path, recursive: bool) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def _scan_file(sol_file: Path, ml_only: bool) -> dict:
-    scan_id = str(uuid.uuid4())
-    original_dir = os.getcwd()
-    os.chdir(_BACKEND_DIR)
-
     try:
-        slither_ok = run_slither(str(sol_file))
-        if not slither_ok:
-            return {
-                "file": sol_file.name,
-                "status": "error",
-                "error": "Slither failed — possible syntax error or unsupported pragma",
-                "findings": [],
-                "risk_score": 0,
-                "total_findings": 0,
-            }
-
-        findings = parse_slither_report(target=str(sol_file))
-        risk_score = compute_risk_score(findings)
-        contract_size = len(sol_file.read_text(errors="ignore"))
-
-        findings = _add_ml_predictions(findings, contract_size, is_solana=False)
-
-        simulation = {"success": False, "stdout": "", "stderr": "skipped"}
-        if not ml_only:
-            try:
-                simulation = run_foundry_tests(verbose=False)
-            except Exception as e:
-                simulation = {"success": False, "stdout": "", "stderr": str(e)}
-
+        result = route_scan(sol_file, ml_only=ml_only)
+        result["file"] = sol_file.name
+        return result
+    except Exception as e:
         return {
-            "scan_id": scan_id,
             "file": sol_file.name,
-            "status": "success",
-            "generated": datetime.utcnow().isoformat(),
-            "risk_score": risk_score,
-            "total_findings": len(findings),
-            "findings": findings,
-            "exploit_simulation": simulation,
+            "status": "error",
+            "error": str(e),
+            "findings": [],
+            "risk_score": 0,
+            "total_findings": 0,
         }
-    finally:
-        os.chdir(original_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -350,36 +385,26 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 # ---------------------------------------------------------------------------
 
 def _scan_rs_file(rs_file: Path) -> dict:
-    """Scan one .rs file and add ML predictions."""
-    original_dir = os.getcwd()
-    os.chdir(_BACKEND_DIR)
-
+    """Scan one .rs file via scanner_router and add ML predictions."""
     try:
-        from src.chainaudit.solana_scanner import scan_solana
-        report = scan_solana(rs_file)
-    except ImportError as e:
-        os.chdir(original_dir)
+        report = route_scan(rs_file)
+        report["file"] = rs_file.name
+        contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
+        report["findings"] = _add_ml_predictions(
+            report.get("findings", []), contract_size, is_solana=True
+        )
+        report["total_findings"] = len(report.get("findings", []))
+        return report
+    except Exception as e:
         return {
             "file": rs_file.name,
             "status": "error",
-            "error": f"Solana scanner not available: {e}",
+            "error": str(e),
             "chain": "solana",
             "risk_score": 0,
             "total_findings": 0,
             "findings": [],
         }
-    finally:
-        os.chdir(original_dir)
-
-    report["file"] = rs_file.name
-
-    contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
-    report["findings"] = _add_ml_predictions(
-        report.get("findings", []), contract_size, is_solana=True
-    )
-    report["total_findings"] = len(report.get("findings", []))
-
-    return report
 
 
 # ---------------------------------------------------------------------------
@@ -409,25 +434,20 @@ def _print_report(report: dict, show_file: bool = False) -> None:
         ))
         return
 
-    risk     = report.get("risk_score", 0)
-    rl       = _risk_label(risk)
-    rs       = _risk_style(risk)
-    findings = report.get("findings", [])
-
-    chain      = report.get("chain", "evm")
-    is_anchor  = report.get("is_anchor", False)
-    chain_suffix = ""
-    if chain == "solana":
-        chain_suffix = "  · SOLANA"
-        if is_anchor:
-            chain_suffix += "  · ANCHOR"
+    risk      = report.get("risk_score", 0)
+    rl        = _risk_label(risk)
+    rs        = _risk_style(risk)
+    findings  = report.get("findings", [])
+    chain     = report.get("chain", "ethereum")
+    is_anchor = report.get("is_anchor", False)
+    suffix    = _chain_suffix(chain, is_anchor)
 
     header = Text()
     if show_file:
         header.append(f"{report.get('file', '')}\n", style="bold white")
     header.append("Risk Score: ", style="white")
     header.append(f"{risk}/100", style=rs)
-    header.append(f"  [{rl}]{chain_suffix}", style=rs)
+    header.append(f"  [{rl}]{suffix}", style=rs)
     header.append(f"\nFindings: {len(findings)}", style="white")
 
     console.print(Panel(header, title="[bold]ChainAudit Report[/bold]", border_style="green"))
@@ -437,12 +457,12 @@ def _print_report(report: dict, show_file: bool = False) -> None:
         return
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold white")
-    table.add_column("#",            style="dim", width=4)
-    table.add_column("Title",        min_width=28)
-    table.add_column("Severity",     width=10)
-    table.add_column("Confidence",   width=11)
-    table.add_column("Occurrences",  width=12)
-    table.add_column("ML Prediction",width=22)
+    table.add_column("#",             style="dim", width=4)
+    table.add_column("Title",         min_width=28)
+    table.add_column("Severity",      width=10)
+    table.add_column("Confidence",    width=11)
+    table.add_column("Occurrences",   width=12)
+    table.add_column("ML Prediction", width=22)
 
     for i, f in enumerate(findings, 1):
         sev      = f.get("severity", "LOW")
@@ -481,7 +501,11 @@ def _print_report_plain(report: dict, show_file: bool = False) -> None:
         print(f"ERROR: {report.get('error', report.get('reason', 'Unknown'))}")
         print(sep)
         return
+    chain  = report.get("chain", "ethereum")
+    label  = _chain_label(chain)
+    anchor = " · ANCHOR" if report.get("is_anchor") and chain == "solana" else ""
     print(f"Risk Score : {report.get('risk_score', 0)}/100")
+    print(f"Chain      : {label}{anchor}")
     print(f"Findings   : {report.get('total_findings', 0)}")
     print(sep)
     for i, f in enumerate(report.get("findings", []), 1):
@@ -505,18 +529,20 @@ def _print_multi_summary(reports: list[dict]) -> None:
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold white")
     table.add_column("File",     min_width=30)
-    table.add_column("Chain",    width=10)
+    table.add_column("Chain",    width=12)
     table.add_column("Score",    width=7)
     table.add_column("Findings", width=10)
     table.add_column("Status",   width=10)
 
     for r in reports:
-        chain       = r.get("chain", "evm").upper()
-        chain_color = "yellow" if chain == "SOLANA" else "cyan"
+        chain  = r.get("chain", "ethereum")
+        label  = _chain_label(chain)
+        color  = _chain_color(chain)
+
         if r.get("status") == "error":
             table.add_row(
                 Path(r.get("file", "unknown")).name,
-                f"[{chain_color}]{chain}[/{chain_color}]",
+                f"[{color}]{label}[/{color}]",
                 "—", "—", "[red]error[/red]",
             )
             continue
@@ -525,7 +551,7 @@ def _print_multi_summary(reports: list[dict]) -> None:
         rs   = _risk_style(risk)
         table.add_row(
             Path(r.get("file", "unknown")).name,
-            f"[{chain_color}]{chain}[/{chain_color}]",
+            f"[{color}]{label}[/{color}]",
             f"[{rs}]{risk}[/{rs}]",
             str(r.get("total_findings", 0)),
             "[green]ok[/green]",
@@ -551,8 +577,8 @@ def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
                 "type": "multi",
                 "total_files": len(reports),
                 "scanned": sum(1 for r in reports if r.get("status") == "success"),
-                "has_evm":     any(r.get("chain", "evm") != "solana" for r in reports),
-                "has_solana":  any(r.get("chain") == "solana" for r in reports),
+                "has_evm":    any(r.get("chain", "ethereum") != "solana" for r in reports),
+                "has_solana": any(r.get("chain") == "solana" for r in reports),
                 "overall_risk_score": max(
                     (r["risk_score"] for r in reports if r.get("status") == "success"),
                     default=0,
@@ -752,13 +778,16 @@ Examples:
   chainaudit scan contracts.zip
   chainaudit scan program.rs
 
+Supported chains (auto-detected):
+  Ethereum · Arbitrum · Optimism · Base · Polygon · BNB · Avalanche · Solana
+
 Web app: https://chainaudit.vercel.app
         """,
     )
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.1.7",
+        version="%(prog)s 1.2.2",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")

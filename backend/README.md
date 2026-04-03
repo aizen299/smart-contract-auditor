@@ -96,7 +96,7 @@ Detected via `cargo-audit` (CVE scanning) + pattern scanning on `.rs` source fil
 
 ## ML Predictions
 
-Each EVM finding includes an ML-predicted exploitability score (SmartBugs dataset, 88% accuracy).
+Each finding includes an ML-predicted exploitability score (SmartBugs dataset, 88% accuracy).
 
 ```json
 {

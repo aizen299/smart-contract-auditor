@@ -2,7 +2,7 @@
 
 Production-grade smart contract security scanner. Upload a Solidity file, Solana Rust program, or zip of multiple contracts. Get a real-time audit report with risk scores, ML exploitability predictions, L2/Arbitrum/Optimism-aware findings, and Solana-specific vulnerability detection.
 
-[![PyPI](https://img.shields.io/pypi/v/chainaudit)
+[![PyPI](https://img.shields.io/pypi/v/chainaudit)](https://pypi.org/project/chainaudit/)
 [![CI](https://github.com/aizen299/smart-contract-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/aizen299/smart-contract-auditor/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 ---
@@ -12,9 +12,7 @@ Production-grade smart contract security scanner. Upload a Solidity file, Solana
 ### Mac / Linux / Ubuntu
 
 ```bash
-pip install chainaudit
-pip install slither-analyzer
-pip install solc-select
+pip install chainaudit slither-analyzer solc-select
 solc-select install 0.8.24
 solc-select use 0.8.24
 
@@ -25,8 +23,7 @@ cargo install cargo-audit
 
 ### Windows
 
-> Requires Python 3.12. Download from [python.org](https://www.python.org/downloads/release/python-3128/) — check "Add Python to PATH" during install. Python 3.13 not yet supported on Windows.
-
+> Requires Python 3.9+
 ```powershell
 pip install chainaudit
 pip install slither-analyzer
@@ -34,8 +31,6 @@ pip install solc-select
 solc-select install 0.8.24
 solc-select use 0.8.24
 ```
-
-> If on a college/office network, use mobile hotspot for installation.
 
 ---
 
@@ -153,7 +148,7 @@ docker compose up --build
 
 ## Vulnerability Coverage
 
-**EVM (all chains) — 16 rules**
+**EVM (all chains) — 18 rules**
 
 | Severity | Rules |
 |----------|-------|
@@ -172,7 +167,7 @@ docker compose up --build
 
 L2 rules are **auto-detected** — the scanner reads contract source for Arbitrum/Optimism identifiers (`ArbSys`, `xDomainMessageSender`, `IL2Bridge` etc.) and injects chain-specific findings automatically.
 
-**Solana / Rust — 15 rules**
+**Solana / Rust — 22 rules**
 
 | Severity | Rules |
 |----------|-------|
