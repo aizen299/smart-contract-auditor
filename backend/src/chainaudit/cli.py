@@ -787,7 +787,7 @@ Web app: https://chainaudit.vercel.app
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.2",
+        version="%(prog)s 1.2.3",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
