@@ -103,6 +103,7 @@ def detect_chain_from_source(source: str) -> str:
     Checks indicators in priority order — most specific first.
     Returns chain name string.
     """
+    source_lower = source.lower()
     # L2/sidechain detection — check before generic EVM
     # Require 2+ indicator hits to avoid false positives
     priority_order = [
@@ -112,8 +113,11 @@ def detect_chain_from_source(source: str) -> str:
 
     for chain_name in priority_order:
         cfg = SUPPORTED_CHAINS[chain_name]
-        hits = sum(1 for indicator in cfg.indicators if indicator in source)
-        if hits >= 2:
+        hits = sum(
+            1 for indicator in cfg.indicators
+            if indicator.lower() in source_lower
+        )
+        if hits >= 1:
             return chain_name
 
     return "ethereum"

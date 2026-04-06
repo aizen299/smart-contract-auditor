@@ -51,7 +51,8 @@ def _ensure_importable() -> None:
 
 _ensure_importable()
 
-from chainaudit.scanner_router import route_scan, route_zip_scan  # noqa: E402
+from .scanner_router import route_scan, route_zip_scan
+
 
 try:
     from rich.console import Console
@@ -64,7 +65,7 @@ except ImportError:
     HAS_RICH = False
 
 try:
-    from chainaudit.ml.predictor import predictor as ml_predictor
+    from .ml.predictor import predictor as ml_predictor
     HAS_ML = True
 except ImportError:
     HAS_ML = False
@@ -787,7 +788,7 @@ Web app: https://chainaudit.vercel.app
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.3",
+        version="%(prog)s 1.2.4",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
