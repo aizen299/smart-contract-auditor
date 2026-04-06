@@ -177,7 +177,7 @@ def _collect_rs_files(target: Path) -> list[Path]:
         return [target]
     if target.is_dir():
         return [
-            f for f in target.rglob("*.rs")
+            f for f in target.glob("*.rs")
             if "target" not in f.parts
             and ".cargo" not in str(f)
             and "node_modules" not in str(f)
@@ -238,7 +238,9 @@ def _scan_file_patterns(source: str, filepath: str) -> list[dict]:
 
         # Only consider mitigated if anti-patterns outnumber or equal triggers
         # This prevents one safe usage from masking multiple vulnerabilities
-        if anti_patterns and anti_count >= trigger_count:
+        # If ANY anti-pattern appears in the file, consider it mitigated
+        # Count-vs-count caused false positives on normal Anchor code
+        if anti_patterns and anti_count > 0:
             continue
 
         rule = get_rule(rule_id)

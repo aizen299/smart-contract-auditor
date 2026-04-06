@@ -41,15 +41,15 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Medium",
         patterns=[
-            r"AccountInfo<'info>",
-            r"\.key\(\)",
-            r"pub fn \w+\(ctx: Context",
+            r"pub\s+\w+:\s*AccountInfo<'info>",
         ],
         anti_patterns=[
             r"Signer<'info>",
-            r"is_signer",
+            r"\.is_signer",
             r"#\[account\(signer\)\]",
             r"require!\(.*\.is_signer",
+            r"#\[account\(constraint",
+            r"has_one\s*=",
         ],
     ),
 
@@ -70,7 +70,6 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Medium",
         patterns=[
-            r"AccountInfo<'info>",
             r"\.data\.borrow\(\)",
             r"try_from_slice",
         ],
@@ -158,12 +157,9 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Medium",
         patterns=[
-            r"\w+\s*\+\s*\w+",
-            r"\w+\s*-\s*\w+",
-            r"\w+\s*\*\s*\w+",
-            r"\+=",
-            r"-=",
-            r"\*=",
+            r"\+=\s*\w+",
+            r"-=\s*\w+",
+            r"\*=\s*\w+",
         ],
         anti_patterns=[
             r"checked_add",
@@ -173,6 +169,7 @@ SOLANA_RULES: list[SolanaRule] = [
             r"saturating_sub",
             r"saturating_mul",
             r"overflow-checks\s*=\s*true",
+            r"\.checked_",
         ],
     ),
 
@@ -215,13 +212,13 @@ SOLANA_RULES: list[SolanaRule] = [
         patterns=[
             r"invoke\(",
             r"invoke_signed\(",
-            r"transfer\(",
-            r"mint_to\(",
-            r"burn\(",
         ],
         anti_patterns=[
             r"//.*CEI",
             r"//.*checks.*effects.*interactions",
+            r"CpiContext",
+            r"token::transfer",
+            r"token::mint_to",
         ],
     ),
 
@@ -242,10 +239,9 @@ SOLANA_RULES: list[SolanaRule] = [
         confidence="High",
         patterns=[
             r"Clock::get\(\)",
-            r"unix_timestamp",
-            r"slot",
-            r"recent_blockhash",
-            r"epoch",
+            r"\.unix_timestamp",
+            r"\.recent_blockhash",
+            r"\bslot\b.*rand|rand.*\bslot\b",
         ],
         anti_patterns=[
             r"VRF",
@@ -271,7 +267,6 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Low",
         patterns=[
-            r"AccountInfo<'info>",
             r"try_from_slice",
         ],
         anti_patterns=[
@@ -354,16 +349,17 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Low",
         patterns=[
-            r"\.amount",
-            r"\.balance",
-            r"\.price",
-            r"\.quantity",
+            r"ctx\.accounts\.\w+\.to_account_info\(\)",
+            r"Account<'info,\s*AccountInfo>",
         ],
         anti_patterns=[
             r"require!\(",
             r"require_gte!\(",
             r"require_eq!\(",
             r"assert!\(",
+            r"#\[account\(.*constraint",
+            r"#\[account\(.*has_one",
+            r"#\[account\(.*owner",
         ],
     ),
 
@@ -528,9 +524,7 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Low",
         patterns=[
-            r"pub fn \w+\(ctx: Context",
-            r"\.amount\s*=",
-            r"\.balance\s*=",
+            r"emit!\(",
         ],
         anti_patterns=[
             r"emit!\(",

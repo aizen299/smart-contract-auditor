@@ -329,7 +329,11 @@ async def scan_zip(file: UploadFile = File(...)):
                     continue
 
                 try:
-                    rs_report = run_solana_scan(rs_path)
+                    isolated_dir = rs_dir / rs_basename.replace('.rs', '_scan')
+                    isolated_dir.mkdir(exist_ok=True)
+                    isolated_file = isolated_dir / rs_basename
+                    isolated_file.write_bytes(rs_content)
+                    rs_report = run_solana_scan(isolated_file)
                     results.append({
                         "file":           rs_basename,
                         "status":         rs_report.get("status", "success"),

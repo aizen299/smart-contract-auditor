@@ -32,7 +32,7 @@ SUPPORTED_CHAINS: dict[str, ChainConfig] = {
         display_name="Arbitrum",
         indicators=[
             "ArbSys", "ArbGasInfo", "ArbRetryableTx",
-            "nitro-contracts", "arbitrum", "L2CrossDomainMessenger",
+            "nitro-contracts", "arbitrum",
             "AddressAliasHelper", "ArbOwner",
         ],
     ),

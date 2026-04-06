@@ -116,6 +116,13 @@ def _add_ml_predictions_evm(findings: list[dict], target: Path) -> list[dict]:
 def _scan_solana(target: Path) -> dict:
     """Run Solana scan via cargo-audit + pattern scanner + ML predictions."""
     from .solana_scanner import scan_solana
+    # scan_solana expects a directory — if given a single file, use its parent
+    if target.is_file():
+        # Use a temp dir so scan_solana doesn't recurse the parent folder
+        import tempfile, shutil as _shutil
+        _tmp = tempfile.mkdtemp()
+        _shutil.copy2(target, _tmp)
+        target = Path(_tmp)
     report = scan_solana(target)
     report["findings"] = _add_ml_predictions_solana(
         report.get("findings", []), target

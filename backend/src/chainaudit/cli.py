@@ -388,7 +388,14 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 def _scan_rs_file(rs_file: Path) -> dict:
     """Scan one .rs file via scanner_router and add ML predictions."""
     try:
-        report = route_scan(rs_file)
+        # scan_solana expects a directory — use isolated dir so
+        # findings don't bleed across files in multi-file scans
+        import tempfile, shutil
+        _tmp = tempfile.mkdtemp(prefix='chainaudit_')
+        isolated_dir = Path(_tmp)
+        isolated_file = isolated_dir / rs_file.name
+        isolated_file.write_bytes(rs_file.read_bytes())
+        report = route_scan(isolated_file)
         report["file"] = rs_file.name
         contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
         report["findings"] = _add_ml_predictions(
@@ -788,7 +795,7 @@ Web app: https://chainaudit.vercel.app
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.4",
+        version="%(prog)s 1.2.6",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
