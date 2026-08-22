@@ -7,6 +7,7 @@ import { RiskScore } from "./RiskScore";
 import { FindingCard } from "./FindingCard";
 import { SeverityBadge, SEVERITY_CONFIG } from "./SeverityBadge";
 import type { ScanResult, Severity } from "@/types";
+import { escapeHtml } from "@/lib/escape-html";
 
 const SEVERITY_ORDER: Severity[] = ["CRITICAL", "HIGH", "MEDIUM", "LOW"];
 
@@ -81,23 +82,23 @@ export function ScanResults({ result, fileName, onRescan }: ScanResultsProps) {
         const c = SEVERITY_COLORS[sev];
         const fChain = (f as any).chain as string | undefined;
         const chainTag = fChain && fChain !== "evm" && fChain !== "ethereum"
-          ? `<span style="font-size:9px;padding:2px 6px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:8px;">${fChain.toUpperCase()}</span>`
+          ? `<span style="font-size:9px;padding:2px 6px;border-radius:20px;background:#2d1f00;color:#f59e0b;border:1px solid #92400e;margin-left:8px;">${escapeHtml(fChain.toUpperCase())}</span>`
           : "";
         return `
           <div style="margin-bottom:16px;border:1px solid ${c.border};border-radius:10px;overflow:hidden;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid ${c.border}40;background:${c.bg}30;">
               <div style="display:flex;align-items:center;gap:12px;">
                 <span style="font-size:11px;color:#555;font-family:monospace;">${String(i + 1).padStart(2, "0")}</span>
-                <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${f.title}${chainTag}</span>
+                <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${escapeHtml(f.title)}${chainTag}</span>
               </div>
               <span style="font-size:10px;font-weight:700;letter-spacing:1px;padding:3px 10px;border-radius:20px;background:${c.bg};color:${c.text};border:1px solid ${c.border};">${sev}</span>
             </div>
             <div style="padding:14px 18px;background:#0d0d0d;">
               <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#555;margin:0 0 6px 0;">Description</p>
-              <p style="font-size:13px;color:#aaa;line-height:1.7;margin:0 0 14px 0;">${f.description}</p>
+              <p style="font-size:13px;color:#aaa;line-height:1.7;margin:0 0 14px 0;">${escapeHtml(f.description)}</p>
               <div style="background:#0a1f0f;border:1px solid #1a4d2a;border-radius:8px;padding:12px 16px;">
                 <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#2d7a45;margin:0 0 6px 0;">Recommended Fix</p>
-                <p style="font-size:13px;color:#aaa;line-height:1.7;margin:0;">${f.fix}</p>
+                <p style="font-size:13px;color:#aaa;line-height:1.7;margin:0;">${escapeHtml(f.fix)}</p>
               </div>
             </div>
           </div>`;
@@ -114,19 +115,19 @@ export function ScanResults({ result, fileName, onRescan }: ScanResultsProps) {
 
     const chainInfoHtml = chain
       ? `<div style="margin-bottom:24px;padding:12px 18px;background:#111;border:1px solid #333;border-radius:10px;display:flex;align-items:center;gap:10px;">
-          <span style="font-size:10px;font-weight:700;letter-spacing:1.5px;padding:3px 10px;border-radius:20px;background:#1a1a1a;color:#aaa;border:1px solid #333;">${chainInfo.label.toUpperCase()}${isAnchor ? " · ANCHOR" : ""}</span>
+          <span style="font-size:10px;font-weight:700;letter-spacing:1.5px;padding:3px 10px;border-radius:20px;background:#1a1a1a;color:#aaa;border:1px solid #333;">${escapeHtml(chainInfo.label.toUpperCase())}${isAnchor ? " · ANCHOR" : ""}</span>
           <span style="font-size:12px;color:#666;">${isSolana ? "Scanned via cargo-audit + pattern analysis" : chain === "ethereum" ? "EVM / Solidity contract" : "L2/EVM chain detected"}</span>
         </div>`
       : "";
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-      <title>Audit Report — ${fileName}</title>
+      <title>Audit Report — ${escapeHtml(fileName)}</title>
       <style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#0a0a0a;color:#e5e5e5;font-family:'Courier New',monospace;padding:48px;}@media print{body{padding:32px;}}</style>
     </head><body>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:24px;border-bottom:1px solid #1a1a1a;margin-bottom:36px;">
         <div>
           <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#555;margin-bottom:6px;">Security Audit Report</div>
-          <div style="font-size:22px;font-weight:700;color:#fff;">${fileName}</div>
+          <div style="font-size:22px;font-weight:700;color:#fff;">${escapeHtml(fileName)}</div>
           <div style="font-size:12px;color:#444;margin-top:4px;">${date} · ChainAudit</div>
         </div>
         <div style="text-align:right;">

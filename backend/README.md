@@ -43,7 +43,7 @@ chainaudit scan program.rs                 # Solana/Rust program
 chainaudit scan ./contracts --recursive    # directory
 chainaudit scan contracts.zip              # zip archive
 chainaudit scan contract.sol --json        # JSON output
-chainaudit scan contract.sol --ml-only     # skip simulation
+chainaudit scan contract.sol --ml-only     # retained; no longer changes behaviour
 chainaudit --version                       # show version
 ```
 
@@ -96,7 +96,7 @@ Detected via `cargo-audit` (CVE scanning) + pattern scanning on `.rs` source fil
 
 ## ML Predictions
 
-Each finding includes an ML-predicted exploitability score (SmartBugs dataset, 88% accuracy).
+Each finding includes an ML-predicted exploitability score (SmartBugs dataset, 88% accuracy on a held-out split of 143 curated contracts — a triage aid for ranking findings, not a guarantee on arbitrary production code).
 
 ```json
 {

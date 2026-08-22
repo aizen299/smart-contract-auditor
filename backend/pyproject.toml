@@ -11,14 +11,46 @@ requires-python = ">=3.9"
 
 dependencies = [
     "rich",
-    "scikit-learn>=1.8.0",
+    # Pinned to the minor series the bundled model artifact was trained
+    # under. A pickle from a different scikit-learn often fails to load,
+    # which silently disables every ML prediction.
+    "scikit-learn>=1.8,<1.9",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "joblib>=1.3.0"
 ]
 
+[project.optional-dependencies]
+# Test-only dependencies, kept out of `dependencies` so the published CLI and
+# the Docker image do not carry them. httpx is not imported by the tests
+# directly — starlette's TestClient requires it, and without it collection of
+# any module importing TestClient fails outright.
+test = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
 [project.scripts]
 chainaudit = "chainaudit.cli:main"
+
+[tool.ruff]
+# Rule selection is explicit. Without it the effective rule set is whatever the
+# installed ruff happens to default to, which changes between releases — and CI
+# installs ruff unpinned, so the lint contract would silently shift underneath
+# the project. line-length is set here rather than passing --ignore E501.
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Path setup must run before the package imports it enables.
+"api.py" = ["E402"]
+# E402 as above. E701: the risk-threshold ladders read as aligned tables of
+# boundaries; expanding each `if score >= 80: return ...` to two lines makes
+# them harder to scan, not easier.
+"src/chainaudit/cli.py" = ["E402", "E701"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -7,13 +7,10 @@ Usage:
 
 import argparse
 import json
-import os
 import sys
-import uuid
 import zipfile
 import tempfile
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -51,7 +48,12 @@ def _ensure_importable() -> None:
 
 _ensure_importable()
 
-from .scanner_router import route_scan, route_zip_scan
+from . import __version__
+from .ml.mapping import (
+    SEVERITY_CONFIDENCE as _SEVERITY_CONFIDENCE,
+    SOLANA_TO_EVM_CHECK as _SOLANA_TO_EVM_CHECK,
+)
+from .scanner_router import route_scan
 
 
 try:
@@ -169,31 +171,6 @@ def _chain_suffix(chain: str, is_anchor: bool = False) -> str:
 # ---------------------------------------------------------------------------
 # ML predictions — unified for both EVM and Solana findings
 # ---------------------------------------------------------------------------
-
-_SOLANA_TO_EVM_CHECK = {
-    "missing-signer-check":     "suicidal",
-    "missing-owner-check":      "suicidal",
-    "arbitrary-cpi":            "reentrancy-eth",
-    "integer-overflow":         "integer-overflow",
-    "unchecked-arithmetic":     "integer-overflow",
-    "unsafe-code":              "assembly",
-    "account-confusion":        "incorrect-equality",
-    "reentrancy-cpi":           "reentrancy-eth",
-    "insecure-randomness":      "weak-prng",
-    "missing-rent-exemption":   "missing-zero-check",
-    "unvalidated-account-data": "missing-zero-check",
-    "missing-close-account":    "locked-ether",
-    "pdas-not-validated":       "incorrect-equality",
-    "missing-freeze-authority": "suicidal",
-    "deprecated-anchor":        "naming-convention",
-}
-
-_SEVERITY_CONFIDENCE = {
-    "CRITICAL": 0.87,
-    "HIGH":     0.74,
-    "MEDIUM":   0.58,
-    "LOW":      0.42,
-}
 
 # Slither check names → what the ML model was trained on
 _SLITHER_TO_ML = {
@@ -388,14 +365,16 @@ def _scan_file(sol_file: Path, ml_only: bool) -> dict:
 def _scan_rs_file(rs_file: Path) -> dict:
     """Scan one .rs file via scanner_router and add ML predictions."""
     try:
-        # scan_solana expects a directory — use isolated dir so
-        # findings don't bleed across files in multi-file scans
-        import tempfile, shutil
-        _tmp = tempfile.mkdtemp(prefix='chainaudit_')
-        isolated_dir = Path(_tmp)
-        isolated_file = isolated_dir / rs_file.name
-        isolated_file.write_bytes(rs_file.read_bytes())
-        report = route_scan(isolated_file)
+        # scan_solana expects a directory — use an isolated dir so findings
+        # don't bleed across files in multi-file scans. Scoped to this call:
+        # the previous mkdtemp() was never registered with _TEMP_DIRS, so
+        # unlike the zip/directory paths it escaped the atexit cleanup and
+        # leaked a copy of the scanned source on every .rs scan.
+        with tempfile.TemporaryDirectory(prefix="chainaudit_") as tmp:
+            isolated_file = Path(tmp) / rs_file.name
+            isolated_file.write_bytes(rs_file.read_bytes())
+            report = route_scan(isolated_file)
+
         report["file"] = rs_file.name
         contract_size = len(rs_file.read_text(errors="ignore")) if rs_file.is_file() else 500
         report["findings"] = _add_ml_predictions(
@@ -587,9 +566,15 @@ def _output_results(reports: list[dict], args: argparse.Namespace) -> None:
                 "scanned": sum(1 for r in reports if r.get("status") == "success"),
                 "has_evm":    any(r.get("chain", "ethereum") != "solana" for r in reports),
                 "has_solana": any(r.get("chain") == "solana" for r in reports),
+                # Highest single-file score, not an aggregate — see api.py for
+                # why gating on the worst contract is the intended semantic.
                 "overall_risk_score": max(
                     (r["risk_score"] for r in reports if r.get("status") == "success"),
                     default=0,
+                ),
+                "files_at_risk": sum(
+                    1 for r in reports
+                    if r.get("status") == "success" and r.get("risk_score", 0) > 0
                 ),
                 "total_findings": sum(r.get("total_findings", 0) for r in reports),
                 "files": reports,
@@ -644,8 +629,10 @@ def _handle_zip(zip_path: Path, args: argparse.Namespace) -> int:
 
     if not args.json:
         parts = []
-        if sol_files: parts.append(f"{len(sol_files)} Solidity")
-        if rs_files:  parts.append(f"{len(rs_files)} Rust")
+        if sol_files:
+            parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:
+            parts.append(f"{len(rs_files)} Rust")
         _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) from zip ({', '.join(parts)})...\n")
 
     for sol_file in sol_files:
@@ -693,8 +680,10 @@ def _handle_directory(target: Path, args: argparse.Namespace) -> int:
 
     if not args.json:
         parts = []
-        if sol_files: parts.append(f"{len(sol_files)} Solidity")
-        if rs_files:  parts.append(f"{len(rs_files)} Rust")
+        if sol_files:
+            parts.append(f"{len(sol_files)} Solidity")
+        if rs_files:
+            parts.append(f"{len(rs_files)} Rust")
         _print(f"\n[bold green]ChainAudit[/bold green] scanning {total} file(s) ({', '.join(parts)})...\n")
 
     reports      = []
@@ -740,7 +729,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     # Single .rs file
     if target.is_file() and target.suffix == ".rs":
         if not args.json:
-            _print(f"\n[bold green]ChainAudit[/bold green] detected [bold yellow]Solana/Rust[/bold yellow] — running Rust scanner...\n")
+            _print("\n[bold green]ChainAudit[/bold green] detected [bold yellow]Solana/Rust[/bold yellow] — running Rust scanner...\n")
         report = _scan_rs_file(target)
         _output_results([report], args)
         has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
@@ -749,7 +738,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     # Single .sol file
     if target.is_file() and target.suffix == ".sol":
         if not args.json:
-            _print(f"\n[bold green]ChainAudit[/bold green] scanning 1 file...\n")
+            _print("\n[bold green]ChainAudit[/bold green] scanning 1 file...\n")
         report = _scan_file(target, ml_only=args.ml_only)
         _output_results([report], args)
         has_critical = any(f.get("severity") == "CRITICAL" for f in report.get("findings", []))
@@ -795,7 +784,7 @@ Web app: https://chainaudit.vercel.app
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 1.2.6",
+        version=f"%(prog)s {__version__}",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
@@ -805,7 +794,8 @@ Web app: https://chainaudit.vercel.app
     scan_parser.add_argument("target", help="Path to a .sol file, .rs file, .zip archive, or directory")
     scan_parser.add_argument("--json",      action="store_true", help="Output full report as JSON")
     scan_parser.add_argument("--ml-only",   action="store_true", dest="ml_only",
-                             help="Skip exploit simulation, run ML prediction only")
+                             help="Accepted for compatibility; no longer changes behaviour "
+                                  "(the exploit simulation it skipped has been removed)")
     scan_parser.add_argument("--recursive", action="store_true",
                              help="Recursively scan all files in a directory")
 

@@ -33,23 +33,24 @@ export default function LoginPage() {
     setLoading(false);
   };
 
-  const handleGitHubLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "github",
+  const handleOAuthLogin = async (provider: "github" | "google") => {
+    setError("");
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+    // On success the browser navigates away, so this only runs on failure.
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+    }
   };
 
-  const handleGoogleLogin = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-  };
+  const handleGitHubLogin = () => handleOAuthLogin("github");
+  const handleGoogleLogin = () => handleOAuthLogin("google");
 
   return (
     <div className="min-h-screen bg-[#080b10] flex flex-col items-center justify-center px-6">
@@ -64,7 +65,7 @@ export default function LoginPage() {
             </div>
           </div>
           <span className="text-sm font-semibold tracking-widest text-white/90 uppercase font-mono">
-            AuditScan
+            ChainAudit
           </span>
         </div>
 
@@ -81,6 +82,12 @@ export default function LoginPage() {
             </div>
           ) : (
             <>
+              {error && (
+                <p role="alert" className="text-xs text-red-400 font-mono mb-4">
+                  {error}
+                </p>
+              )}
+
               {/* OAuth buttons */}
               <div className="space-y-3 mb-6">
                 <button
@@ -124,9 +131,6 @@ export default function LoginPage() {
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-[#00ff88]/40 transition-colors font-mono"
                 />
-                {error && (
-                  <p className="text-xs text-red-400 font-mono">{error}</p>
-                )}
                 <button
                   type="submit"
                   disabled={loading}
@@ -139,9 +143,6 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-[11px] text-white/20 mt-6 font-mono">
-          By signing in you agree to our terms of service
-        </p>
       </div>
     </div>
   );

@@ -29,18 +29,22 @@ jobs:
         working-directory: backend
         run: |
           pip install -r requirements.txt
-          pip install pytest
+          # Test extras (pytest, httpx) are declared in pyproject so CI and a
+          # local checkout install the same set.
+          pip install -e ".[test]"
 
       - name: Lint with ruff
         working-directory: backend
         run: |
-          pip install ruff
-          ruff check src/ api.py --ignore E501 || true
+          # Pinned: an unpinned ruff changes its default rule set between
+          # releases, which would move the lint contract without a code change.
+          # Rule selection and line-length live in pyproject.toml.
+          pip install "ruff==0.16.4"
+          ruff check src/ api.py tests/
 
       - name: Run tests
         working-directory: backend
-        run: |
-          pytest tests/ -v --tb=short || true
+        run: pytest tests/ -v --tb=short
 
   # ─────────────────────────────────────────────
   # Frontend — type check + build
@@ -66,7 +70,11 @@ jobs:
 
       - name: Type check
         working-directory: frontend
-        run: npx tsc --noEmit || true
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
 
       - name: Build
         working-directory: frontend
@@ -116,8 +124,18 @@ jobs:
           echo "  Scanning test contracts..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-          # Scan all test contracts
-          python -m src.cli scan ../contracts/test --recursive --json > /tmp/scan_report.json 2>/dev/null || true
+          # Scan all test contracts via the installed console entrypoint.
+          # Exit 1 = CRITICAL findings present, which is expected for the
+          # deliberately-vulnerable fixtures; only a missing report is fatal.
+          set +e
+          chainaudit scan ../contracts/test --recursive --json > /tmp/scan_report.json
+          SCAN_EXIT=$?
+          set -e
+
+          if [ ! -s /tmp/scan_report.json ]; then
+            echo "::error::ChainAudit produced no report (exit $SCAN_EXIT). Scan did not run."
+            exit 1
+          fi
 
           # Parse results
           RISK=$(python3 -c "import json; d=json.load(open('/tmp/scan_report.json')); print(d.get('overall_risk_score', 0))" 2>/dev/null || echo "0")

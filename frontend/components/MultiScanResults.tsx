@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { FileCode, RotateCcw, Download, ChevronDown } from "lucide-react";
 import { SeverityBadge } from "./SeverityBadge";
+import { escapeHtml } from "@/lib/escape-html";
 
 interface Finding {
   title: string;
@@ -126,7 +127,7 @@ function exportChainTag(chain: string, isAnchor?: boolean): string {
     l2: { bg: "#0a2d2d", color: "#22d3ee", border: "#164e63" },
   };
   const s = EXPORT_CHAIN_STYLES[chain.toLowerCase()] ?? EXPORT_CHAIN_STYLES.ethereum;
-  const label = CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase();
+  const label = escapeHtml(CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase());
   const suffix = chain === "solana" && isAnchor ? " · ANCHOR" : "";
   return `<span style="font-size:9px;padding:2px 8px;border-radius:20px;background:${s.bg};color:${s.color};border:1px solid ${s.border};margin-left:8px;">${label}${suffix}</span>`;
 }
@@ -144,7 +145,7 @@ function exportFindingChainTag(chain: string): string {
     l2: { bg: "#0a2d2d", color: "#22d3ee", border: "#164e63" },
   };
   const s = EXPORT_CHAIN_STYLES[chain.toLowerCase()] ?? EXPORT_CHAIN_STYLES.ethereum;
-  const label = CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase();
+  const label = escapeHtml(CHAIN_CONFIG[chain.toLowerCase()]?.label ?? chain.toUpperCase());
   return `<span style="font-size:8px;padding:1px 6px;border-radius:20px;background:${s.bg};color:${s.color};border:1px solid ${s.border};margin-left:6px;">${label}</span>`;
 }
 
@@ -253,9 +254,9 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
         return `
           <div style="margin-bottom:24px;border:1px solid #1a1a1a;border-radius:10px;overflow:hidden;">
             <div style="padding:14px 18px;background:#111;display:flex;justify-content:space-between;align-items:center;">
-              <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${file.file}</span>
+              <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${escapeHtml(file.file)}</span>
               <span style="font-size:11px;color:#444;text-transform:uppercase;letter-spacing:1px;">
-                ${file.status === "success" ? "0 findings" : (file.reason || file.status)}
+                ${escapeHtml(file.status === "success" ? "0 findings" : (file.reason || file.status))}
               </span>
             </div>
           </div>`;
@@ -278,16 +279,16 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
               <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${c.bg}30;border-bottom:1px solid ${c.border}40;">
                 <div style="display:flex;align-items:center;gap:10px;">
                   <span style="font-size:10px;color:#555;font-family:monospace;">${String(i + 1).padStart(2, "0")}</span>
-                  <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${f.title}${findingChainTag}</span>
+                  <span style="font-size:13px;font-weight:600;color:#e5e5e5;">${escapeHtml(f.title)}${findingChainTag}</span>
                 </div>
                 <span style="font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:20px;background:${c.bg};color:${c.text};border:1px solid ${c.border};">${sev}</span>
               </div>
               <div style="padding:12px 14px;background:#0d0d0d;">
                 <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#555;margin:0 0 5px 0;">Description</p>
-                <p style="font-size:12px;color:#aaa;line-height:1.6;margin:0 0 12px 0;">${f.description}</p>
+                <p style="font-size:12px;color:#aaa;line-height:1.6;margin:0 0 12px 0;">${escapeHtml(f.description)}</p>
                 <div style="background:#0a1f0f;border:1px solid #1a4d2a;border-radius:6px;padding:10px 12px;">
                   <p style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#2d7a45;margin:0 0 5px 0;">Recommended Fix</p>
-                  <p style="font-size:12px;color:#aaa;line-height:1.6;margin:0;">${f.fix}</p>
+                  <p style="font-size:12px;color:#aaa;line-height:1.6;margin:0;">${escapeHtml(f.fix)}</p>
                 </div>
               </div>
             </div>`;
@@ -297,7 +298,7 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       return `
         <div style="margin-bottom:28px;border:1px solid #222;border-radius:10px;overflow:hidden;">
           <div style="padding:14px 18px;background:#111;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a1a1a;">
-            <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${file.file}${chainTag}</span>
+            <span style="font-size:14px;font-weight:600;color:#e5e5e5;">${escapeHtml(file.file)}${chainTag}</span>
             <div>
               <span style="font-size:22px;font-weight:700;font-family:monospace;color:${riskColor};">${file.risk_score}</span>
               <span style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:${riskColor};margin-left:8px;">${getRiskLabelText(file.risk_score)}</span>
@@ -316,22 +317,22 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
       const chainBadge = exportChainTag(rowChain, f.is_anchor).replace('margin-left:8px', 'margin-left:6px');
       return `
         <tr>
-          <td style="padding:8px 12px;font-size:12px;color:#ccc;border-bottom:1px solid #1a1a1a;">${f.file}${chainBadge}</td>
+          <td style="padding:8px 12px;font-size:12px;color:#ccc;border-bottom:1px solid #1a1a1a;">${escapeHtml(f.file)}${chainBadge}</td>
           <td style="padding:8px 12px;font-size:12px;font-family:monospace;color:${rc};border-bottom:1px solid #1a1a1a;text-align:center;">${f.risk_score}</td>
-          <td style="padding:8px 12px;font-size:12px;color:#666;border-bottom:1px solid #1a1a1a;text-align:center;">${f.status === "success" ? f.total_findings : f.status}</td>
+          <td style="padding:8px 12px;font-size:12px;color:#666;border-bottom:1px solid #1a1a1a;text-align:center;">${escapeHtml(f.status === "success" ? f.total_findings : f.status)}</td>
         </tr>`;
     }).join("");
 
     const overallColor = getRiskColorHex(result.overall_risk_score);
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-      <title>Multi-Contract Audit — ${fileName}</title>
+      <title>Multi-Contract Audit — ${escapeHtml(fileName)}</title>
       <style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#0a0a0a;color:#e5e5e5;font-family:'Courier New',monospace;padding:48px;}@media print{body{padding:32px;}}</style>
     </head><body>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:24px;border-bottom:1px solid #1a1a1a;margin-bottom:32px;">
         <div>
           <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#555;margin-bottom:6px;">Multi-Contract Security Audit</div>
-          <div style="font-size:22px;font-weight:700;color:#fff;">${fileName}</div>
+          <div style="font-size:22px;font-weight:700;color:#fff;">${escapeHtml(fileName)}</div>
           <div style="font-size:11px;color:#444;margin-top:4px;">${date} · ChainAudit · ${result.total_files} file${result.total_files !== 1 ? "s" : ""}</div>
         </div>
         <div style="text-align:right;">

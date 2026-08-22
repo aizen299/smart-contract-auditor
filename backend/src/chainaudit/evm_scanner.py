@@ -1,8 +1,11 @@
 import json
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 from .evm_rules import map_finding, detect_l2_chain, get_l2_rules
+
+log = logging.getLogger("chainaudit.evm")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = Path(tempfile.gettempdir()) / "chainaudit_reports"
@@ -10,11 +13,20 @@ SLITHER_JSON = REPORTS_DIR / "slither.json"
 
 IMPACT_ORDER = {"High": 3, "Medium": 2, "Low": 1, "Informational": 0}
 
-def run_slither(target: str) -> bool:
-    REPORTS_DIR.mkdir(exist_ok=True, parents=True)
+def run_slither(target: str, json_path: Path | None = None) -> bool:
+    """
+    Run Slither against `target`, writing JSON to `json_path`.
 
-    if SLITHER_JSON.exists():
-        SLITHER_JSON.unlink()
+    `json_path` defaults to the shared module-level SLITHER_JSON. Callers that
+    may run concurrently must pass a unique path — the API now executes scans in
+    a threadpool, so two requests sharing one output file would overwrite each
+    other's results between the subprocess call and the parse.
+    """
+    out_path = json_path or SLITHER_JSON
+    out_path.parent.mkdir(exist_ok=True, parents=True)
+
+    if out_path.exists():
+        out_path.unlink()
 
     # Use absolute path — works on Windows and Mac regardless of cwd
     target_path = Path(target).resolve()
@@ -23,7 +35,7 @@ def run_slither(target: str) -> bool:
     # Ensure the parent directory exists before setting it as cwd
     cwd = str(target_path.parent) if target_path.parent.exists() else None
 
-    cmd = ["slither", target_abs, "--json", str(SLITHER_JSON)]
+    cmd = ["slither", target_abs, "--json", str(out_path)]
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -32,14 +44,27 @@ def run_slither(target: str) -> bool:
         cwd=cwd,  # run from contract's directory if it exists
     )
 
-    if not SLITHER_JSON.exists():
+    # Slither's own diagnostics were previously captured and discarded, so a
+    # failed scan surfaced only as a generic "Slither failed" with no way to
+    # tell a bad pragma from a missing solc. Log them at the point of failure.
+    if not out_path.exists():
+        log.warning(
+            "Slither produced no report for %s (exit %s): %s",
+            target_abs, result.returncode,
+            (result.stderr or result.stdout or "").strip()[:500] or "no output",
+        )
         return False
 
     try:
-        data = json.loads(SLITHER_JSON.read_text())
+        data = json.loads(out_path.read_text())
         if not data.get("success", True) and not data.get("results", {}).get("detectors"):
+            log.warning(
+                "Slither reported failure for %s: %s",
+                target_abs, str(data.get("error", ""))[:500] or "no detail",
+            )
             return False
     except json.JSONDecodeError:
+        log.warning("Slither wrote unparseable JSON for %s", target_abs)
         return False
 
     return True
@@ -58,12 +83,14 @@ def _read_source(target: str) -> str:
     return ""
 
 
-def parse_slither_report(target: str = "") -> list:
-    if not SLITHER_JSON.exists():
+def parse_slither_report(target: str = "", json_path: Path | None = None) -> list:
+    """Parse Slither JSON into findings. See run_slither for `json_path`."""
+    in_path = json_path or SLITHER_JSON
+    if not in_path.exists():
         return []
 
     try:
-        data = json.loads(SLITHER_JSON.read_text())
+        data = json.loads(in_path.read_text())
     except json.JSONDecodeError:
         return []
 

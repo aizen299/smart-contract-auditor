@@ -44,12 +44,38 @@ export default function Home() {
       : "/api/scan";
 
     try {
+      // The scan API verifies a Supabase JWT, so the session token travels with
+      // the request. Next's rewrite forwards headers to the backend unchanged.
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        // Scanning requires a verified Supabase token, so send them somewhere
+        // they can act rather than showing a dead-end error.
+        router.push("/login?next=/");
+        return;
+      }
+
       const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 401) {
+        router.push("/login?next=/");
+        return;
+      }
+
+      if (res.status === 429) {
+        setErrorMessage(
+          data.detail || "Too many scans in a short period. Try again shortly."
+        );
+        setStage("error");
+        return;
+      }
 
       if (!res.ok) {
         setErrorMessage(data.detail || "An unexpected error occurred.");
@@ -66,19 +92,15 @@ export default function Home() {
         setResult(scanResult);
         setStage("results");
 
-        // Save to Supabase if logged in
+        // Save to history — the scan already proved the session is valid.
         try {
-          const supabase = createClient();
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            await supabase.from("scans").insert({
-              user_id: user.id,
+          await supabase.from("scans").insert({
+              user_id: session.user.id,
               file_name: file.name,
               risk_score: scanResult.risk_score,
               total_findings: scanResult.total_findings ?? scanResult.findings?.length ?? 0,
               findings: scanResult.findings,
-            });
-          }
+          });
         } catch {
           console.error("Failed to save scan to history");
         }

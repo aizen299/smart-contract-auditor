@@ -81,8 +81,13 @@ runs:
       id: scan
       shell: bash
       working-directory: ${{ github.action_path }}/backend
+      env:
+        # Passed via env, never interpolated into the script body — a target
+        # containing shell metacharacters would otherwise execute here.
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_OUTPUT_FORMAT: ${{ inputs.output-format }}
       run: |
-        TARGET="${{ inputs.target }}"
+        TARGET="$INPUT_TARGET"
 
         # Resolve absolute path
         if [[ "$TARGET" != /* ]]; then
@@ -94,7 +99,20 @@ runs:
         # Run scan and capture JSON output
         REPORT_PATH="${GITHUB_WORKSPACE}/chainaudit-report.json"
 
-        python -m src.cli scan "$TARGET" --json > "$REPORT_PATH" 2>/dev/null || true
+        # `chainaudit` is the console_scripts entrypoint created by the
+        # `pip install -e .` step above. Exit code 1 means CRITICAL findings
+        # were found (a valid outcome handled below), so the exit status is
+        # captured rather than blanket-suppressed — anything else is a real
+        # failure and must not be silently swallowed.
+        set +e
+        chainaudit scan "$TARGET" --json > "$REPORT_PATH"
+        SCAN_EXIT=$?
+        set -e
+
+        if [ ! -s "$REPORT_PATH" ]; then
+          echo "::error::ChainAudit produced no report (exit $SCAN_EXIT). Scan did not run."
+          exit 1
+        fi
 
         # Parse report values
         if [ -f "$REPORT_PATH" ]; then
@@ -137,8 +155,8 @@ runs:
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         # Also run human-readable output for logs
-        if [ "${{ inputs.output-format }}" = "table" ]; then
-          python -m src.cli scan "$TARGET" 2>/dev/null || true
+        if [ "$INPUT_OUTPUT_FORMAT" = "table" ]; then
+          chainaudit scan "$TARGET" || true
         fi
 
     - name: Upload scan report
@@ -152,8 +170,10 @@ runs:
     - name: Fail on CRITICAL findings
       shell: bash
       if: inputs.fail-on-critical == 'true'
+      env:
+        CRITICAL_COUNT: ${{ steps.scan.outputs.critical_count }}
       run: |
-        CRITICAL=${{ steps.scan.outputs.critical_count }}
+        CRITICAL="${CRITICAL_COUNT:-0}"
         if [ "$CRITICAL" -gt "0" ]; then
           echo "CRITICAL vulnerabilities found ($CRITICAL). Blocking deployment."
           exit 1

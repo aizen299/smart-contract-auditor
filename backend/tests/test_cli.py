@@ -7,13 +7,10 @@ Run with:
 """
 
 import json
-import os
 import sys
 import zipfile
-import tempfile
-import shutil
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
