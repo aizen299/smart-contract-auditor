@@ -6,90 +6,93 @@ interface RiskScoreProps {
   score: number;
 }
 
-function getRiskLabel(score: number) {
-  if (score >= 80) return { label: "Critical Risk", color: "#ef4444", glow: "rgba(239,68,68,0.3)" };
-  if (score >= 60) return { label: "High Risk", color: "#f97316", glow: "rgba(249,115,22,0.3)" };
-  if (score >= 40) return { label: "Medium Risk", color: "#eab308", glow: "rgba(234,179,8,0.3)" };
-  return { label: "Low Risk", color: "#00ff88", glow: "rgba(0,255,136,0.3)" };
+function getRisk(score: number) {
+  if (score >= 80) return { label: "Critical Risk", color: "var(--sev-critical)" };
+  if (score >= 60) return { label: "High Risk", color: "var(--sev-high)" };
+  if (score >= 40) return { label: "Medium Risk", color: "var(--sev-medium)" };
+  if (score >= 20) return { label: "Low Risk", color: "var(--sev-low)" };
+  return { label: "Minimal Risk", color: "var(--sev-safe)" };
 }
 
+/**
+ * The dial housing is neumorphic — a sunken well the track sits in.
+ * The arc and the number are not: they are the datum, so they render as a
+ * flat saturated stroke and stark white digits.
+ */
 export function RiskScore({ score }: RiskScoreProps) {
-  const [displayScore, setDisplayScore] = useState(0);
-  const { label, color, glow } = getRiskLabel(score);
+  const [display, setDisplay] = useState(0);
+  const { label, color } = getRisk(score);
 
-  const RADIUS = 72;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-  const strokeDashoffset = CIRCUMFERENCE - (displayScore / 100) * CIRCUMFERENCE;
+  const RADIUS = 70;
+  const CIRC = 2 * Math.PI * RADIUS;
+  const offset = CIRC - (display / 100) * CIRC;
 
   useEffect(() => {
-    let current = 0;
-    const timer = setInterval(() => {
-      current += 2;
-      if (current >= score) {
-        setDisplayScore(score);
-        clearInterval(timer);
-      } else {
-        setDisplayScore(current);
-      }
-    }, 20);
-    return () => clearInterval(timer);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      setDisplay(score);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const DURATION = 900;
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / DURATION, 1);
+      // easeOutCubic — fast settle, no bounce past the true value
+      setDisplay(Math.round(score * (1 - Math.pow(1 - t, 3))));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [score]);
 
   return (
     <div className="flex flex-col items-center">
-      {/* Circular gauge */}
-      <div className="relative w-44 h-44">
-        {/* Glow background */}
-        <div
-          className="absolute inset-4 rounded-full blur-xl opacity-20 transition-all duration-1000"
-          style={{ backgroundColor: color }}
-        />
-
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 180 180">
-          {/* Track */}
+      <div
+        className="relative w-44 h-44 rounded-full flex items-center justify-center"
+        style={{ background: "var(--neu-sunken)", boxShadow: "var(--press)" }}
+      >
+        <svg className="w-[164px] h-[164px] -rotate-90" viewBox="0 0 180 180">
           <circle
-            cx="90" cy="90" r={RADIUS}
+            cx="90"
+            cy="90"
+            r={RADIUS}
             fill="none"
             stroke="rgba(255,255,255,0.05)"
-            strokeWidth="10"
+            strokeWidth="9"
             strokeLinecap="round"
           />
-          {/* Progress */}
           <circle
-            cx="90" cy="90" r={RADIUS}
+            cx="90"
+            cy="90"
+            r={RADIUS}
             fill="none"
             stroke={color}
-            strokeWidth="10"
+            strokeWidth="9"
             strokeLinecap="round"
-            strokeDasharray={CIRCUMFERENCE}
-            strokeDashoffset={strokeDashoffset}
-            style={{
-              transition: "stroke-dashoffset 0.05s linear",
-              filter: `drop-shadow(0 0 8px ${glow})`,
-            }}
+            strokeDasharray={CIRC}
+            strokeDashoffset={offset}
+            style={{ filter: `drop-shadow(0 0 6px ${color})` }}
           />
         </svg>
 
-        {/* Score text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span
-            className="text-5xl font-bold font-mono tabular-nums leading-none"
+            className="data-strong text-[3.25rem] font-bold leading-none"
             style={{ color }}
           >
-            {displayScore}
+            {display}
           </span>
-          <span className="text-xs text-white/30 mt-1 tracking-widest uppercase">/ 100</span>
+          <span className="text-[10px] text-ink-muted mt-1 tracking-[0.2em] uppercase">
+            / 100
+          </span>
         </div>
       </div>
 
-      {/* Label */}
+      {/* Flat outlined verdict — not a soft chip. */}
       <div
-        className="mt-4 px-4 py-1.5 rounded-full border text-sm font-semibold tracking-wide"
-        style={{
-          borderColor: `${color}30`,
-          backgroundColor: `${color}10`,
-          color,
-        }}
+        className="sev-outline mt-5 px-4 py-1.5 text-[11px]"
+        style={{ borderColor: color, color }}
       >
         {label}
       </div>

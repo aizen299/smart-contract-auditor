@@ -11,113 +11,123 @@ interface FindingCardProps {
   index: number;
 }
 
-const SEVERITY_BORDER: Record<string, string> = {
-  CRITICAL: "border-l-red-500/60",
-  HIGH:     "border-l-orange-500/60",
-  MEDIUM:   "border-l-yellow-500/60",
-  LOW:      "border-l-blue-500/60",
+/**
+ * Risk rail colours. Rendered as a crisp glowing edge rather than a shadow
+ * shift, so severity survives at a glance and at low contrast sensitivity.
+ */
+const RAIL: Record<string, string> = {
+  CRITICAL: "var(--sev-critical)",
+  HIGH: "var(--sev-high)",
+  MEDIUM: "var(--sev-medium)",
+  LOW: "var(--sev-low)",
 };
 
-const SEVERITY_BG: Record<string, string> = {
-  CRITICAL: "hover:bg-red-500/[0.03]",
-  HIGH:     "hover:bg-orange-500/[0.03]",
-  MEDIUM:   "hover:bg-yellow-500/[0.03]",
-  LOW:      "hover:bg-blue-500/[0.03]",
+const CHAIN_COLOR: Record<string, string> = {
+  ethereum: "#a78bfa",
+  evm: "#a78bfa",
+  solana: "#ffb340",
+  arbitrum: "#5ac8fa",
+  optimism: "#ff6961",
+  base: "#64a9ff",
+  polygon: "#c084fc",
+  bnb: "#ffd60a",
+  avalanche: "#ff6961",
+  l2: "#5ac8fa",
 };
 
-const CHAIN_COLORS: Record<string, { text: string; bg: string; border: string }> = {
-  ethereum: { text: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-  evm:      { text: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-  solana:   { text: "text-amber-400",  bg: "bg-amber-500/10",  border: "border-amber-500/20"  },
-  arbitrum: { text: "text-sky-400",    bg: "bg-sky-500/10",    border: "border-sky-500/20"    },
-  optimism: { text: "text-red-400",    bg: "bg-red-500/10",    border: "border-red-500/20"    },
-  base:     { text: "text-blue-400",   bg: "bg-blue-500/10",   border: "border-blue-500/20"   },
-  polygon:  { text: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" },
-  l2:       { text: "text-sky-400",    bg: "bg-sky-500/10",    border: "border-sky-500/20"    },
-};
-
-function getChainColors(chain: string) {
-  return CHAIN_COLORS[chain.toLowerCase()] ?? { text: "text-sky-400", bg: "bg-sky-500/10", border: "border-sky-500/20" };
-}
-
-function MLBadge({ exploitability, confidence }: { exploitability: string; confidence: number }) {
-  const colorMap: Record<string, string> = {
-    CRITICAL: "text-red-400 bg-red-500/10 border-red-500/20",
-    HIGH:     "text-orange-400 bg-orange-500/10 border-orange-500/20",
-    MEDIUM:   "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
-    LOW:      "text-sky-400 bg-sky-500/10 border-sky-500/20",
-  };
-  const colors = colorMap[exploitability] ?? "text-white/30 bg-white/5 border-white/10";
-  const pct = Math.round(confidence * 100);
-
-  return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[10px] font-semibold tracking-wide ${colors}`}>
-      <Brain className="w-2.5 h-2.5" />
-      ML: {exploitability} · {pct}%
-    </div>
-  );
+function chainColor(chain: string) {
+  return CHAIN_COLOR[chain.toLowerCase()] ?? "var(--sev-low)";
 }
 
 function ChainBadge({ chain }: { chain: string }) {
-  const c = getChainColors(chain);
+  const color = chainColor(chain);
   return (
-    <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold tracking-wider uppercase border ${c.bg} ${c.text} ${c.border}`}>
+    <span
+      className="sev-outline inline-flex items-center px-1.5 py-[2px] text-[9px]"
+      style={{ borderColor: `${color}88`, color }}
+    >
       {chain}
     </span>
+  );
+}
+
+function MLBadge({
+  exploitability,
+  confidence,
+}: {
+  exploitability: string;
+  confidence: number;
+}) {
+  const color = RAIL[exploitability] ?? "var(--text-muted)";
+  const pct = Math.round(confidence * 100);
+  return (
+    <div className="neu-chip inline-flex items-center gap-2 px-2.5 py-1.5">
+      <Brain className="w-3 h-3" style={{ color }} />
+      <span className="text-[10px] tracking-wider text-ink-muted uppercase">ML</span>
+      {/* Prediction and confidence are data: flat, full contrast. */}
+      <span className="data-strong text-[11px] font-bold" style={{ color }}>
+        {exploitability}
+      </span>
+      <span className="data-strong text-[11px] text-ink-primary">{pct}%</span>
+    </div>
   );
 }
 
 export function FindingCard({ finding, index }: FindingCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const hasML           = !!(finding as any).ml_exploitability && (finding as any).ml_exploitability !== "unknown";
-  // Default to "ethereum" so pure EVM findings always have a chain label
-  const chain           = ((finding as any).chain as string | undefined) ?? "ethereum";
-  const isChainSpecific = true; // always show chain badge — every finding belongs to a chain
-  const occurrences     = (finding as any).occurrences as number | undefined;
-  const sev           = finding.severity;
+  const anyFinding = finding as any;
+  const hasML =
+    !!anyFinding.ml_exploitability && anyFinding.ml_exploitability !== "unknown";
+  const chain = (anyFinding.chain as string | undefined) ?? "ethereum";
+  const occurrences = anyFinding.occurrences as number | undefined;
+  const filesAffected = anyFinding.files_affected as string[] | undefined;
+  const sev = finding.severity;
+  const rail = RAIL[sev] ?? "var(--text-faint)";
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04, duration: 0.2 }}
-      className={`rounded-2xl border border-white/[0.07] border-l-2 overflow-hidden transition-colors duration-200
-        bg-white/[0.02] ${SEVERITY_BG[sev] ?? "hover:bg-white/[0.035]"} ${SEVERITY_BORDER[sev] ?? "border-l-white/10"}`}
+      transition={{ delay: Math.min(index * 0.035, 0.3), duration: 0.25 }}
+      className="neu-panel risk-rail overflow-hidden"
+      style={{ ["--rail" as string]: rail }}
     >
-      {/* Header row */}
       <button
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full flex items-center gap-4 px-5 py-4 text-left"
       >
-        {/* Index */}
-        <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-white/[0.05] border border-white/[0.07] flex items-center justify-center text-[10px] font-semibold text-white/30 font-mono">
+        {/* Index — a sunken track holding flat mono digits. */}
+        <span className="code-ref flex-shrink-0 w-7 h-7 flex items-center justify-center text-[11px] font-bold">
           {String(index + 1).padStart(2, "0")}
         </span>
 
-        {/* Title + chain badge */}
         <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-white/90 leading-snug">{finding.title}</span>
-          {isChainSpecific && chain && <ChainBadge chain={chain} />}
+          {/* Title is primary data: stark white, no shadow. */}
+          <span className="data-strong text-sm font-semibold leading-snug">
+            {finding.title}
+          </span>
+          <ChainBadge chain={chain} />
         </div>
 
-        {/* Right side — occurrences + severity + chevron */}
         <div className="flex items-center gap-2.5 flex-shrink-0">
           {occurrences && occurrences > 1 && (
-            <div className="hidden sm:flex items-center gap-1 text-[10px] text-white/25 font-mono">
-              <Hash className="w-2.5 h-2.5" />
+            <span className="code-ref hidden sm:flex items-center gap-1 px-2 py-1 text-[10px] font-bold">
+              <Hash className="w-2.5 h-2.5 opacity-60" />
               {occurrences}
-            </div>
+            </span>
           )}
           <SeverityBadge severity={sev} size="sm" />
           <ChevronDown
-            className={`w-4 h-4 text-white/30 transition-transform duration-300 ${expanded ? "rotate-180" : ""}`}
+            className={`w-4 h-4 text-ink-muted transition-transform duration-300 ${
+              expanded ? "rotate-180" : ""
+            }`}
           />
         </div>
       </button>
 
-      {/* Expanded content */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -125,59 +135,66 @@ export function FindingCard({ finding, index }: FindingCardProps) {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="px-5 pb-5 pt-4 space-y-4 border-t border-white/[0.05]">
-
-              {/* ML + Chain badges row */}
-              {(hasML || isChainSpecific) && (
+            <div className="px-5 pb-5 pt-1 space-y-4">
+              {(hasML || occurrences) && (
                 <div className="flex flex-wrap items-center gap-2">
                   {hasML && (
                     <MLBadge
-                      exploitability={(finding as any).ml_exploitability}
-                      confidence={(finding as any).ml_confidence}
+                      exploitability={anyFinding.ml_exploitability}
+                      confidence={anyFinding.ml_confidence}
                     />
                   )}
-                  {isChainSpecific && chain && (
-                    <div className="flex items-center gap-1.5">
-                      <ChainBadge chain={chain} />
-                      <span className="text-[10px] text-white/25">
-                        {chain === "solana"
-                          ? "Solana-specific finding"
-                          : chain === "ethereum" || chain === "evm"
-                          ? "EVM / Solidity finding"
-                          : `${chain}-specific finding`}
-                      </span>
-                    </div>
-                  )}
                   {occurrences && occurrences > 1 && (
-                    <span className="sm:hidden text-[10px] text-white/25 font-mono">
+                    <span className="sm:hidden code-ref px-2 py-1 text-[10px] font-bold">
                       {occurrences}× occurrences
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Description */}
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-white/25 mb-2 font-semibold">
+              <div className="neu-well px-4 py-3.5">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-ink-muted mb-2 font-bold">
                   Description
                 </p>
-                <p className="text-sm text-white/60 leading-relaxed">{finding.description}</p>
+                <p className="text-[13px] text-ink-secondary leading-relaxed">
+                  {finding.description}
+                </p>
               </div>
 
-              {/* Fix */}
-              <div className="rounded-xl bg-[#00ff88]/[0.04] border border-[#00ff88]/[0.12] p-4">
+              {filesAffected && filesAffected.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-ink-muted font-bold">
+                    Files
+                  </span>
+                  {filesAffected.map((f) => (
+                    <span key={f} className="code-ref px-2 py-1 text-[10px]">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* The fix is the actionable payload — flagged with the safe accent. */}
+              <div
+                className="neu-well px-4 py-3.5"
+                style={{ boxShadow: `var(--press-sm), inset 0 0 0 1px var(--sev-safe)33` }}
+              >
                 <div className="flex items-center gap-2 mb-2">
-                  <Wrench className="w-3 h-3 text-[#00ff88]/70" />
-                  <p className="text-[10px] uppercase tracking-widest text-[#00ff88]/60 font-semibold">
+                  <Wrench className="w-3 h-3" style={{ color: "var(--sev-safe)" }} />
+                  <p
+                    className="text-[10px] uppercase tracking-[0.18em] font-bold"
+                    style={{ color: "var(--sev-safe)" }}
+                  >
                     Recommended Fix
                   </p>
                 </div>
-                <p className="text-sm text-white/65 leading-relaxed">{finding.fix}</p>
+                <p className="text-[13px] text-ink-secondary leading-relaxed">
+                  {finding.fix}
+                </p>
               </div>
-
             </div>
           </motion.div>
         )}

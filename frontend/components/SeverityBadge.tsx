@@ -1,37 +1,22 @@
 import type { Severity } from "@/types";
 
+/**
+ * Severity tags are deliberately flat.
+ *
+ * A neumorphic tag would encode risk as a shadow direction, which is both
+ * slow to read and invisible to anyone who cannot resolve the soft edges.
+ * These sit on top of the soft surfaces as solid, saturated marks: dark ink
+ * on a bright fill for the two levels that demand attention, and a crisp
+ * outline for the two that do not.
+ */
 const SEVERITY_CONFIG: Record<
   Severity,
-  { label: string; bg: string; text: string; border: string; dot: string }
+  { label: string; color: string; solid: boolean }
 > = {
-  CRITICAL: {
-    label: "Critical",
-    bg: "bg-red-500/10",
-    text: "text-red-400",
-    border: "border-red-500/20",
-    dot: "bg-red-400",
-  },
-  HIGH: {
-    label: "High",
-    bg: "bg-orange-500/10",
-    text: "text-orange-400",
-    border: "border-orange-500/20",
-    dot: "bg-orange-400",
-  },
-  MEDIUM: {
-    label: "Medium",
-    bg: "bg-yellow-500/10",
-    text: "text-yellow-400",
-    border: "border-yellow-500/20",
-    dot: "bg-yellow-400",
-  },
-  LOW: {
-    label: "Low",
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    border: "border-blue-500/20",
-    dot: "bg-blue-400",
-  },
+  CRITICAL: { label: "Critical", color: "var(--sev-critical)", solid: true },
+  HIGH:     { label: "High",     color: "var(--sev-high)",     solid: true },
+  MEDIUM:   { label: "Medium",   color: "var(--sev-medium)",   solid: false },
+  LOW:      { label: "Low",      color: "var(--sev-low)",      solid: false },
 };
 
 interface BadgeProps {
@@ -40,16 +25,30 @@ interface BadgeProps {
 }
 
 export function SeverityBadge({ severity, size = "md" }: BadgeProps) {
-  const config = SEVERITY_CONFIG[severity];
+  const { label, color, solid } = SEVERITY_CONFIG[severity];
+  const dims = size === "sm" ? "text-[9px] px-2 py-[3px]" : "text-[10px] px-2.5 py-1";
+
+  if (solid) {
+    return (
+      <span
+        className={`sev-tag ${dims}`}
+        style={{ backgroundColor: color, boxShadow: `0 0 12px ${color}55` }}
+      >
+        {label}
+      </span>
+    );
+  }
+
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border font-semibold tracking-widest uppercase
-        ${config.bg} ${config.text} ${config.border}
-        ${size === "sm" ? "text-[9px] px-2 py-0.5" : "text-[10px] px-2.5 py-1"}
-      `}
+      className={`sev-outline inline-flex items-center gap-1.5 ${dims}`}
+      style={{ borderColor: color, color }}
     >
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.dot}`} />
-      {config.label}
+      <span
+        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+        style={{ backgroundColor: color }}
+      />
+      {label}
     </span>
   );
 }

@@ -47,11 +47,13 @@ interface MultiScanResultsProps {
 }
 
 function getRiskColor(score: number) {
-  if (score >= 80) return { text: "text-red-400", label: "Critical" };
-  if (score >= 60) return { text: "text-orange-400", label: "High" };
-  if (score >= 40) return { text: "text-yellow-400", label: "Medium" };
-  if (score >= 20) return { text: "text-sky-400", label: "Low" };
-  return { text: "text-emerald-400", label: "Minimal" };
+  // `tone` is the flat on-screen colour; `text` is retained for any remaining
+  // Tailwind-class consumers.
+  if (score >= 80) return { text: "text-red-400", label: "Critical", tone: "var(--sev-critical)" };
+  if (score >= 60) return { text: "text-orange-400", label: "High", tone: "var(--sev-high)" };
+  if (score >= 40) return { text: "text-yellow-400", label: "Medium", tone: "var(--sev-medium)" };
+  if (score >= 20) return { text: "text-sky-400", label: "Low", tone: "var(--sev-low)" };
+  return { text: "text-emerald-400", label: "Minimal", tone: "var(--sev-safe)" };
 }
 
 function getRiskColorHex(score: number): string {
@@ -159,66 +161,89 @@ function FileCard({ file, index }: { file: FileResult; index: number }) {
   const isAnchor = file.is_anchor === true;
 
   return (
-    <div className={`rounded-2xl border overflow-hidden transition-all duration-200
-      ${isSolana
-        ? "border-amber-500/20 bg-amber-500/[0.02] hover:border-amber-500/30"
-        : "border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]"
-      }`}>
+    <div
+      className="neu-panel risk-rail overflow-hidden"
+      style={{ ["--rail" as string]: file.status === "success" ? risk.tone : "var(--text-faint)" }}
+    >
       <button
         onClick={() => file.status === "success" && setExpanded(!expanded)}
+        aria-expanded={expanded}
         className="w-full flex items-center gap-4 px-5 py-4 text-left"
       >
-        <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-white/[0.05] border border-white/[0.07] flex items-center justify-center text-[10px] font-semibold text-white/30 font-mono">
+        <span className="code-ref flex-shrink-0 w-7 h-7 flex items-center justify-center text-[11px] font-bold">
           {String(index + 1).padStart(2, "0")}
         </span>
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isSolana ? "text-amber-400/50" : "text-white/30"}`} />
-          <span className="text-sm text-white/80 truncate">{file.file}</span>
+          <FileCode className="w-3.5 h-3.5 flex-shrink-0 text-ink-faint" />
+          {/* File name is data — full contrast. */}
+          <span className="data-strong text-sm font-semibold truncate">{file.file}</span>
           <ChainBadge chain={fileChain} isAnchor={isAnchor} />
         </div>
 
         {file.status === "success" ? (
           <div className="flex items-center gap-3 flex-shrink-0">
-            <span className={`text-sm font-bold font-mono ${risk.text}`}>
+            <span className="data-strong text-base font-bold" style={{ color: risk.tone }}>
               {file.risk_score}
             </span>
-            <span className={`text-[10px] uppercase tracking-widest ${risk.text} opacity-70`}>
+            <span
+              className="hidden sm:inline text-[9px] uppercase tracking-[0.14em] font-bold"
+              style={{ color: risk.tone }}
+            >
               {risk.label}
             </span>
-            <span className="text-[11px] text-white/25">
+            <span className="data-strong text-[11px] text-ink-muted">
               {file.total_findings} finding{file.total_findings !== 1 ? "s" : ""}
             </span>
             {file.findings.length > 0 && (
-              <ChevronDown className={`w-4 h-4 text-white/30 transition-transform duration-300 ${expanded ? "rotate-180" : ""}`} />
+              <ChevronDown
+                className={`w-4 h-4 text-ink-muted transition-transform duration-300 ${
+                  expanded ? "rotate-180" : ""
+                }`}
+              />
             )}
           </div>
         ) : (
-          <span className="text-[11px] text-white/25 uppercase tracking-widest">
+          <span
+            className="sev-outline px-2 py-[3px] text-[9px] flex-shrink-0"
+            style={{ borderColor: "var(--text-muted)", color: "var(--text-muted)" }}
+          >
             {file.status}
           </span>
         )}
       </button>
 
       {expanded && file.findings.length > 0 && (
-        <div className="border-t border-white/[0.05] px-5 py-4 space-y-3">
+        <div className="px-5 pb-5 pt-1 space-y-3">
           {file.findings.map((finding, i) => {
             const findingChain = finding.chain ?? fileChain;
             return (
-              <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                <span className="text-[10px] font-mono text-white/25 mt-0.5">
+              <div key={i} className="neu-well flex items-start gap-3 p-3.5">
+                <span className="code-ref flex-shrink-0 px-1.5 py-1 text-[10px] font-bold">
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-sm text-white/80">{finding.title}</span>
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="data-strong text-sm font-semibold">{finding.title}</span>
                     <SeverityBadge severity={finding.severity} size="sm" />
                     <FindingChainBadge chain={findingChain} />
                   </div>
-                  <p className="text-xs text-white/40 leading-relaxed">{finding.description}</p>
-                  <div className="mt-2 rounded-lg bg-[#00ff88]/[0.04] border border-[#00ff88]/[0.10] p-2.5">
-                    <p className="text-[10px] text-[#00ff88]/60 uppercase tracking-widest mb-1">Fix</p>
-                    <p className="text-xs text-white/50">{finding.fix}</p>
+                  <p className="text-xs text-ink-secondary leading-relaxed">
+                    {finding.description}
+                  </p>
+                  <div className="mt-2.5 rounded-lg px-3 py-2.5"
+                    style={{
+                      background: "var(--neu-surface)",
+                      boxShadow: `var(--raise-sm), inset 0 0 0 1px var(--sev-safe)22`,
+                    }}
+                  >
+                    <p
+                      className="text-[9px] uppercase tracking-[0.16em] mb-1 font-bold"
+                      style={{ color: "var(--sev-safe)" }}
+                    >
+                      Fix
+                    </p>
+                    <p className="text-xs text-ink-secondary leading-relaxed">{finding.fix}</p>
                   </div>
                 </div>
               </div>
@@ -377,79 +402,100 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
   }, [result, fileName, date]);
 
   return (
-    <div className="min-h-screen pt-20 pb-20 px-6">
+    <div className="relative z-10 min-h-screen pt-24 pb-24 px-6">
       <div className="max-w-3xl mx-auto">
 
-        {/* Top meta bar */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-widest text-white/25">
-            <FileCode className="w-3 h-3" />
-            <span className="text-white/40 font-medium">{fileName}</span>
+        {/* Meta bar */}
+        <div className="flex items-center justify-between gap-4 mb-7 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <FileCode className="w-3.5 h-3.5 text-ink-faint" />
+            <span className="data-strong text-xs font-semibold truncate max-w-[220px]">
+              {fileName}
+            </span>
             {hasSolana && (
-              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
-                SOLANA
+              <span
+                className="sev-outline px-2 py-[3px] text-[9px]"
+                style={{ borderColor: "var(--sev-high)", color: "var(--sev-high)" }}
+              >
+                Solana
               </span>
             )}
             {hasEVM && (
-              <span className="px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-semibold">
+              <span
+                className="sev-outline px-2 py-[3px] text-[9px]"
+                style={{ borderColor: "#a78bfa", color: "#a78bfa" }}
+              >
                 EVM
               </span>
             )}
-            <span>·</span>
-            <span>{date}</span>
+            <span className="text-[11px] text-ink-faint">{date}</span>
           </div>
           <button
             onClick={onRescan}
-            className="flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-white/30 hover:text-white/60 transition-colors"
+            className="neu-btn flex items-center gap-2 px-3.5 py-2 text-[10px] tracking-[0.16em] uppercase text-ink-muted"
           >
             <RotateCcw className="w-3 h-3" />
             New Scan
           </button>
         </div>
 
-        {/* Summary card */}
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 mb-6">
+        {/* Summary */}
+        <div className="neu-panel-lg p-8 mb-6">
           <div className="flex flex-col md:flex-row items-center gap-8">
             <div className="flex flex-col items-center flex-shrink-0">
-              <span className={`text-6xl font-bold font-mono ${overallRisk.text}`}>
-                {result.overall_risk_score}
-              </span>
-              <div className="mt-3 px-4 py-1.5 rounded-full border text-sm font-semibold tracking-wide border-white/10">
-                <span className={overallRisk.text}>{overallRisk.label} Risk</span>
+              {/* Overall score sits in a sunken dial; the number itself is flat. */}
+              <div
+                className="neu-well w-32 h-32 rounded-full flex items-center justify-center"
+              >
+                <span
+                  className="data-strong text-[2.75rem] font-bold leading-none"
+                  style={{ color: overallRisk.tone }}
+                >
+                  {result.overall_risk_score}
+                </span>
+              </div>
+              <div
+                className="sev-outline mt-4 px-4 py-1.5 text-[11px]"
+                style={{ borderColor: overallRisk.tone, color: overallRisk.tone }}
+              >
+                {overallRisk.label} Risk
               </div>
             </div>
 
-            <div className="hidden md:block w-px self-stretch bg-white/[0.06]" />
-
-            <div className="flex-1 space-y-4 w-full">
+            <div className="flex-1 space-y-5 w-full">
               <div>
-                <p className="text-[11px] uppercase tracking-widest text-white/25 mb-1.5">Multi-Contract Scan</p>
-                <p className="text-white/60 text-sm leading-relaxed">
-                  Scanned <span className="text-white font-semibold">{result.scanned}</span> of{" "}
-                  <span className="text-white font-semibold">{result.total_files}</span> files.{" "}
-                  Found <span className="text-white font-semibold">{result.total_findings} total issue{result.total_findings !== 1 ? "s" : ""}</span> across all contracts.
-                  {hasSolana && hasEVM && (
-                    <span className="text-amber-400/70"> Mixed EVM + Solana scan.</span>
-                  )}
-                  {hasSolana && !hasEVM && (
-                    <span className="text-amber-400/70"> Solana programs scanned via cargo-audit + pattern analysis.</span>
-                  )}
+                <p className="text-[10px] uppercase tracking-[0.2em] text-ink-muted mb-2 font-bold">
+                  Multi-Contract Scan
+                </p>
+                <p className="text-ink-secondary text-[13px] leading-relaxed">
+                  Scanned <span className="data-strong font-bold">{result.scanned}</span> of{" "}
+                  <span className="data-strong font-bold">{result.total_files}</span> files.
+                  Found{" "}
+                  <span className="data-strong font-bold">
+                    {result.total_findings} total issue{result.total_findings !== 1 ? "s" : ""}
+                  </span>{" "}
+                  across all contracts.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                  <span className="text-xl font-bold font-mono text-white/70">{result.total_files}</span>
-                  <span className="text-[10px] text-white/30 uppercase tracking-widest">Files</span>
-                </div>
-                <div className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                  <span className="text-xl font-bold font-mono text-white/70">{result.scanned}</span>
-                  <span className="text-[10px] text-white/30 uppercase tracking-widest">Scanned</span>
-                </div>
-                <div className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                  <span className="text-xl font-bold font-mono text-white/70">{result.total_findings}</span>
-                  <span className="text-[10px] text-white/30 uppercase tracking-widest">Issues</span>
-                </div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {[
+                  ["Files", result.total_files],
+                  ["Scanned", result.scanned],
+                  ["Issues", result.total_findings],
+                ].map(([label, value]) => (
+                  <div
+                    key={String(label)}
+                    className="neu-well flex flex-col items-center gap-2 px-2 py-3"
+                  >
+                    <span className="data-strong text-2xl font-bold leading-none">
+                      {value as number}
+                    </span>
+                    <span className="text-[9px] text-ink-muted uppercase tracking-[0.14em] font-bold">
+                      {label as string}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -457,21 +503,26 @@ export function MultiScanResults({ result, fileName, onRescan }: MultiScanResult
 
         {/* Per-file results */}
         <div className="space-y-3">
-          <p className="text-[11px] uppercase tracking-widest text-white/25 mb-4">Files</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-ink-muted mb-4 font-bold">
+            Files
+          </p>
           {result.files.map((file, i) => (
             <FileCard key={i} file={file} index={i} />
           ))}
         </div>
 
-        {/* Footer export */}
-        <div className="mt-12 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        {/* Export */}
+        <div className="mt-12 neu-panel p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-white/80">Want the full audit report?</p>
-            <p className="text-xs text-white/30 mt-1">Export as PDF with all findings grouped by severity</p>
+            <p className="data-strong text-sm font-semibold">Want the full audit report?</p>
+            <p className="text-xs text-ink-muted mt-1">
+              Export as PDF with all findings grouped by severity
+            </p>
           </div>
           <button
             onClick={handleExport}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/[0.06] border border-white/[0.10] text-sm text-white/70 hover:bg-white/[0.09] hover:text-white/90 transition-all cursor-pointer"
+            className="neu-btn flex items-center gap-2 px-5 py-3 text-[11px] font-bold tracking-[0.14em] uppercase"
+            style={{ color: "var(--accent)" }}
           >
             <Download className="w-3.5 h-3.5" />
             Export Report
