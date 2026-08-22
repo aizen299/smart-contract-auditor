@@ -52,6 +52,12 @@ Scanning requires external binaries on PATH: `slither` + `solc-select` (EVM), op
 
 ### Frontend
 
+Requires **Node 22**. The version is pinned in four places that must agree —
+`.nvmrc`, `engines.node` in `frontend/package.json`, `node-version` in
+`.github/workflows/ci.yml`, and both stages of `frontend/Dockerfile`. Vercel
+reads `engines.node`; before it was set, Vercel chose its own default, so the
+deployed build ran on a different Node than CI verified.
+
 ```bash
 cd frontend && npm install && npm run dev
 ```
@@ -60,7 +66,9 @@ cd frontend && npm install && npm run dev
 cd frontend && npm test
 ```
 
-`npm run build`, `npm run lint`, `npx tsc --noEmit`, and `npm test` all run in CI and all block.
+`npm run build`, `npm run lint`, `npx tsc --noEmit`, and `npm test` all run in CI and all block. Lint runs with `--max-warnings=0`, so a new warning fails the build.
+
+ESLint uses `.eslintrc.json`, not flat config: `next lint` on Next 14 cannot read `eslint.config.mjs` and silently drops into its interactive setup prompt instead of linting. Keep the legacy format until Next is upgraded past 15.
 
 ### Retraining the ML model
 
