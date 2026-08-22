@@ -36,3 +36,6 @@ backend/build/
 backend/tmp_scans
 backend/src/reports/
 backend/reports/
+
+# Claude Code creates worktrees here; the launch config beside them is tracked.
+.claude/worktrees/
