@@ -134,6 +134,8 @@ ML failure never fails a scan (`ml_exploitability: "unknown"`), but it is no lon
 
 The frontend never calls the backend origin directly from the browser: `next.config.mjs` `rewrites()` proxy `/api/scan*` → `NEXT_PUBLIC_API_URL`. That's also why the CSP `connect-src` only lists Supabase. Supabase handles auth (middleware refreshes the session on every non-static request) and stores scan history in a `scans` table written client-side from `app/page.tsx` after a successful single-file scan.
 
+**`scans` is protected by row-level security, and that is load-bearing.** The anon key ships to every browser, so the `.eq("user_id", ...)` filter in `app/history/page.tsx` is a query parameter, not a boundary — a client can omit it. RLS is the only thing stopping one user from reading another's rows, which carry the full `findings` array. The policies are transcribed in `supabase/migrations/0001_scans_rls.sql`; note that file is schema-as-code for review, not an applied migration — there is no Supabase CLI setup, so changes are made in the dashboard and mirrored there by hand. Policies existing is not sufficient: `relrowsecurity` must also be true, or they are inert.
+
 **The scan API requires a Supabase JWT.** `require_user` (a FastAPI dependency on all three `/scan*` routes) verifies the bearer token with signature, `exp` and `aud` all enforced. Two modes, because Supabase is mid-migration:
 
 - **JWKS** (this project's mode) — the token is ES256/RS256 signed by the project's asymmetric key. `PyJWKClient` fetches the public keys from `SUPABASE_URL`'s JWKS endpoint once and caches them, refetching only on an unseen `kid`, so steady-state verification is local and rotation needs no redeploy.
