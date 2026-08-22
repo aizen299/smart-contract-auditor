@@ -26,8 +26,9 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    // useRouter() returns a stable reference, so this still runs once on mount.
     router.refresh();
-  }, []);
+  }, [router]);
 
   const handleScan = async (file: File) => {
     setFileName(file.name);

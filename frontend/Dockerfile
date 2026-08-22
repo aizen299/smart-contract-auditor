@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 node:18 AS builder
+FROM --platform=linux/amd64 node:22 AS builder
 WORKDIR /app
 
 ARG NEXT_PUBLIC_SUPABASE_URL
@@ -16,7 +16,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM --platform=linux/amd64 node:18-slim AS runner
+FROM --platform=linux/amd64 node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
