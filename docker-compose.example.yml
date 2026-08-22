@@ -13,6 +13,9 @@ services:
       - backend/.env
     environment:
       - PYTHONUNBUFFERED=1
+      # Scan endpoints verify a Supabase JWT. Put SUPABASE_JWT_SECRET in
+      # backend/.env, or set CHAINAUDIT_REQUIRE_AUTH=false to run open locally.
+      - CHAINAUDIT_ALLOWED_ORIGINS=http://localhost:3000
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]

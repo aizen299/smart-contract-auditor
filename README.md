@@ -72,7 +72,7 @@ chainaudit scan program.rs                 # Solana/Rust program
 chainaudit scan ./contracts --recursive    # directory
 chainaudit scan contracts.zip              # zip — .sol, .rs, or mixed
 chainaudit scan contract.sol --json        # JSON output
-chainaudit scan contract.sol --ml-only     # skip simulation
+chainaudit scan contract.sol --ml-only     # retained; no longer changes behaviour
 chainaudit --version                       # show version
 ```
 
@@ -106,6 +106,20 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
+**`backend/.env`** — the scan endpoints verify a Supabase access token, so the
+API needs the project's JWT secret (Supabase dashboard → Project Settings → API
+→ JWT Secret). Without it `/scan*` returns 503 rather than accepting anonymous
+requests.
+```
+SUPABASE_JWT_SECRET=your_supabase_jwt_secret
+
+# Optional
+CHAINAUDIT_REQUIRE_AUTH=true          # false runs an intentionally open instance
+CHAINAUDIT_ALLOWED_ORIGINS=https://chainaudit.vercel.app,http://localhost:3000
+CHAINAUDIT_RATE_LIMIT_REQUESTS=10     # per client, per window
+CHAINAUDIT_RATE_LIMIT_WINDOW=60       # seconds
+```
+
 **Docker**
 ```bash
 cp docker-compose.example.yml docker-compose.yml
@@ -115,6 +129,8 @@ docker compose up --build
 ---
 
 ## API
+
+All three endpoints require an `Authorization: Bearer <supabase-access-token>` header.
 
 `POST /scan` — single `.sol` file
 `POST /scan/rust` — Solana/Rust `.rs` file
@@ -182,7 +198,9 @@ Detected via `cargo-audit` (CVE scanning in dependencies) + regex pattern scanni
 
 ## ML Pipeline
 
-Trained on SmartBugs dataset (143 contracts, 10 vulnerability classes). Random Forest classifier predicts exploitability per finding with a confidence score. 88% accuracy overall — 95% precision on HIGH, 93% on CRITICAL.
+Trained on the SmartBugs curated dataset (143 contracts, 10 vulnerability classes). A Random Forest classifier predicts exploitability per finding with a confidence score.
+
+On a held-out 20% split it scores 88% accuracy — 95% precision on HIGH, 93% on CRITICAL. Worth reading with the sample size in mind: 143 contracts is a small, curated corpus of known-vulnerable code, so these figures describe performance on SmartBugs rather than a guarantee about arbitrary production contracts. Treat the score as a triage aid for ranking findings, not as a verdict.
 
 ---
 
