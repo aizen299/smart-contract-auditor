@@ -37,5 +37,18 @@ backend/tmp_scans
 backend/src/reports/
 backend/reports/
 
-# Claude Code creates worktrees here; the launch config beside them is tracked.
+# Claude Code creates worktrees here; the launch config beside them is tracked
+# on purpose (PR #3) so `npm run dev` is one command for everyone.
 .claude/worktrees/
+.claude/settings.local.json
+.claude/*.local.json
+
+# Env variants not already covered
+.env.*.local
+*.env
+
+# Editor / tooling scratch
+.idea/
+.vscode/
+*.swp
+*~

@@ -38,7 +38,7 @@ solc-select use 0.8.24
 
 | | |
 |---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Frontend | Next.js 14, TypeScript, Tailwind CSS, shadcn/ui + Radix |
 | Backend | FastAPI, Python 3.11 |
 | Analysis | Slither, solc-select, CVSS-inspired scoring |
 | Solana | cargo-audit, regex pattern scanner |
@@ -87,6 +87,10 @@ Exit code `1` on CRITICAL findings — blocks deployments in CI.
 
 ## Local Development
 
+Requires **Python 3.11** and **Node 22**. The Node version is pinned in
+`.nvmrc`, `engines.node`, CI and both Dockerfile stages — if you use nvm,
+`nvm use` in the repo root picks it up.
+
 ```bash
 # Backend
 cd backend
@@ -98,6 +102,13 @@ uvicorn api:app --reload
 cd frontend
 npm install && npm run dev
 ```
+
+The frontend is built on a three-layer design token system — colour,
+typography and severity all resolve through CSS variables in
+`app/globals.css`. Severity/risk banding lives in `lib/severity.ts` and chain
+display in `lib/chains.ts`; both are single sources of truth, so add new
+values there rather than in a component. See `design-system/chainaudit/` for
+the palette rationale and accessibility measurements.
 
 **`frontend/.env.local`**
 ```
