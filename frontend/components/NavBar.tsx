@@ -58,7 +58,7 @@ export function NavBar({ onReset }: NavBarProps) {
             </div>
           </div>
           <span className="text-sm font-semibold tracking-widest text-white/90 uppercase">
-            AuditScan
+            ChainAudit
           </span>
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20 font-semibold tracking-wider">
             BETA

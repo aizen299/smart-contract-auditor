@@ -8,6 +8,10 @@ interface UploadZoneProps {
   onScan: (file: File) => void;
 }
 
+// Mirrors the backend ceiling (5MB zip) so an oversized file is reported
+// immediately instead of after uploading and waiting for a 400.
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
 function getFileType(file: File): "sol" | "zip" | "rust" | null {
   if (file.name.endsWith(".sol")) return "sol";
   if (file.name.endsWith(".zip")) return "zip";
@@ -27,23 +31,43 @@ const CHAIN_PILLS = [
 export function UploadZone({ onScan }: UploadZoneProps) {
   const [dragging, setDragging]       = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [rejection, setRejection] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const fileType    = selectedFile ? getFileType(selectedFile) : null;
   const accentColor = fileType === "rust" ? "#f59e0b" : fileType === "zip" ? "#00d4ff" : "#00ff88";
 
+  const accept = useCallback((file: File | undefined) => {
+    if (!file) return;
+    if (!getFileType(file)) {
+      setRejection(
+        `${file.name} is not a supported file. Upload a .sol, .rs, or .zip file.`
+      );
+      setSelectedFile(null);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setRejection(
+        `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)}MB. The limit is ` +
+        `${MAX_UPLOAD_BYTES / 1024 / 1024}MB.`
+      );
+      setSelectedFile(null);
+      return;
+    }
+    setRejection("");
+    setSelectedFile(file);
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file && getFileType(file)) setSelectedFile(file);
-  }, []);
+    accept(e.dataTransfer.files[0]);
+  }, [accept]);
 
   const handleDragOver  = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
   const handleDragLeave = () => setDragging(false);
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && getFileType(file)) setSelectedFile(file);
+    accept(e.target.files?.[0]);
   };
 
   const fileLabel = fileType === "zip"  ? "Multi-contract zip"
@@ -224,6 +248,15 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         {dragging && (
           <div className="absolute inset-0 rounded-2xl bg-[#00ff88]/5 pointer-events-none" />
         )}
+
+        {rejection && (
+          <p
+            role="alert"
+            className="px-10 pb-6 -mt-4 text-xs text-red-400 text-center"
+          >
+            {rejection}
+          </p>
+        )}
       </motion.div>
 
       {/* Scan button */}
@@ -256,9 +289,13 @@ export function UploadZone({ onScan }: UploadZoneProps) {
         className="relative z-10 mt-10 flex flex-wrap items-center justify-center gap-4"
       >
         {[
-          { icon: Zap,  label: "< 30s Analysis"          },
-          { icon: Lock, label: "Never Stored"             },
-          { icon: Eye,  label: "22+ Vulnerability Classes" },
+          // Timings and retention describe what the scanner actually does:
+          // Slither is capped at 90s and the cargo tools at 120s each, and
+          // uploads are deleted after the scan while findings are saved to
+          // history only when signed in.
+          { icon: Zap,  label: "Results in Under 2 Min"     },
+          { icon: Lock, label: "Uploads Deleted After Scan" },
+          { icon: Eye,  label: "50+ Vulnerability Rules"    },
         ].map(({ icon: Icon, label }) => (
           <div key={label} className="flex items-center gap-2 text-[11px] tracking-widest uppercase text-white/25">
             <Icon className="w-3 h-3 text-white/20" />
