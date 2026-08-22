@@ -1,27 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { bandMeta } from "@/lib/severity";
 
 interface RiskScoreProps {
   score: number;
 }
 
-function getRiskLabel(score: number) {
-  if (score >= 80) return { label: "Critical Risk", color: "#ef4444", glow: "rgba(239,68,68,0.3)" };
-  if (score >= 60) return { label: "High Risk", color: "#f97316", glow: "rgba(249,115,22,0.3)" };
-  if (score >= 40) return { label: "Medium Risk", color: "#eab308", glow: "rgba(234,179,8,0.3)" };
-  return { label: "Low Risk", color: "#00ff88", glow: "rgba(0,255,136,0.3)" };
-}
-
 export function RiskScore({ score }: RiskScoreProps) {
   const [displayScore, setDisplayScore] = useState(0);
-  const { label, color, glow } = getRiskLabel(score);
+  const { riskLabel, hex } = bandMeta(score);
 
   const RADIUS = 72;
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
   const strokeDashoffset = CIRCUMFERENCE - (displayScore / 100) * CIRCUMFERENCE;
 
   useEffect(() => {
+    // Respect the OS setting rather than counting up regardless — the
+    // animation is decorative and the number is the point.
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      setDisplayScore(score);
+      return;
+    }
     let current = 0;
     const timer = setInterval(() => {
       current += 2;
@@ -37,61 +38,56 @@ export function RiskScore({ score }: RiskScoreProps) {
 
   return (
     <div className="flex flex-col items-center">
-      {/* Circular gauge */}
-      <div className="relative w-44 h-44">
-        {/* Glow background */}
+      <div
+        className="relative h-44 w-44"
+        role="img"
+        aria-label={`Risk score ${score} out of 100 — ${riskLabel}`}
+      >
         <div
-          className="absolute inset-4 rounded-full blur-xl opacity-20 transition-all duration-1000"
-          style={{ backgroundColor: color }}
+          className="absolute inset-4 rounded-full opacity-20 blur-xl transition-all duration-slow"
+          style={{ backgroundColor: hex }}
+          aria-hidden="true"
         />
 
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 180 180">
-          {/* Track */}
+        <svg className="h-full w-full -rotate-90" viewBox="0 0 180 180" aria-hidden="true">
           <circle
             cx="90" cy="90" r={RADIUS}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="10"
+            stroke="hsl(var(--gauge-track))"
+            strokeWidth="var(--gauge-stroke)"
             strokeLinecap="round"
           />
-          {/* Progress */}
           <circle
             cx="90" cy="90" r={RADIUS}
             fill="none"
-            stroke={color}
-            strokeWidth="10"
+            stroke={hex}
+            strokeWidth="var(--gauge-stroke)"
             strokeLinecap="round"
             strokeDasharray={CIRCUMFERENCE}
             strokeDashoffset={strokeDashoffset}
             style={{
               transition: "stroke-dashoffset 0.05s linear",
-              filter: `drop-shadow(0 0 8px ${glow})`,
+              filter: `drop-shadow(0 0 8px ${hex}4D)`,
             }}
           />
         </svg>
 
-        {/* Score text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span
-            className="text-5xl font-bold font-mono tabular-nums leading-none"
-            style={{ color }}
+            className="font-mono text-5xl font-bold leading-none tabular-nums"
+            style={{ color: hex }}
           >
             {displayScore}
           </span>
-          <span className="text-xs text-white/30 mt-1 tracking-widest uppercase">/ 100</span>
+          <span className="mt-1 text-xs uppercase tracking-widest text-subtle">/ 100</span>
         </div>
       </div>
 
-      {/* Label */}
       <div
-        className="mt-4 px-4 py-1.5 rounded-full border text-sm font-semibold tracking-wide"
-        style={{
-          borderColor: `${color}30`,
-          backgroundColor: `${color}10`,
-          color,
-        }}
+        className="mt-4 rounded-full border px-4 py-1.5 text-sm font-semibold tracking-wide"
+        style={{ borderColor: `${hex}40`, backgroundColor: `${hex}1A`, color: hex }}
       >
-        {label}
+        {riskLabel}
       </div>
     </div>
   );

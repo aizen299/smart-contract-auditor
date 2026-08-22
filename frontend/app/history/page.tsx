@@ -1,13 +1,26 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, FileCode, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import { NavBar } from "@/components/NavBar";
 import { ScanResults } from "@/components/ScanResults";
-import { useRouter } from "next/navigation";
-import { FileCode, Trash2, ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { ScanResult } from "@/types";
+import { bandMeta, riskLabelShort } from "@/lib/severity";
 
 interface ScanRecord {
   id: string;
@@ -16,22 +29,6 @@ interface ScanRecord {
   total_findings: number;
   findings: any[];
   created_at: string;
-}
-
-function getRiskColor(score: number) {
-  if (score >= 80) return "text-red-400";
-  if (score >= 60) return "text-orange-400";
-  if (score >= 40) return "text-yellow-400";
-  if (score >= 20) return "text-sky-400";
-  return "text-emerald-400";
-}
-
-function getRiskLabel(score: number) {
-  if (score >= 80) return "Critical";
-  if (score >= 60) return "High";
-  if (score >= 40) return "Medium";
-  if (score >= 20) return "Low";
-  return "Minimal";
 }
 
 function formatDate(dateStr: string) {
@@ -44,7 +41,9 @@ function formatDate(dateStr: string) {
 export default function HistoryPage() {
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [selected, setSelected] = useState<ScanRecord | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ScanRecord | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -53,48 +52,55 @@ export default function HistoryPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-      const { data } = await supabase
+      const { data, error: fetchError } = await supabase
         .from("scans")
         .select("*")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
+      // A failed fetch previously rendered as an empty history, which reads as
+      // "you have no scans" — the opposite of what happened.
+      if (fetchError) setError("Could not load your scan history.");
       setScans(data || []);
       setLoading(false);
     };
     fetchScans();
-  }, []);
+  }, [router]);
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); // prevent opening the scan
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setPendingDelete(null);
+
     const supabase = createClient();
-    await supabase.from("scans").delete().eq("id", id);
-    setScans(scans.filter((s) => s.id !== id));
-    if (selected?.id === id) setSelected(null);
-  };
+    const { error: deleteError } = await supabase.from("scans").delete().eq("id", target.id);
+    if (deleteError) {
+      setError("Could not delete that scan.");
+      return;
+    }
+    setScans((prev) => prev.filter((s) => s.id !== target.id));
+    if (selected?.id === target.id) setSelected(null);
+  }, [pendingDelete, selected]);
 
-  // Show full results for a selected scan
   if (selected) {
     const scanResult: ScanResult = {
       risk_score: selected.risk_score,
       findings: selected.findings,
     };
     return (
-      <div className="min-h-screen bg-[#080b10] text-white font-mono">
+      <div className="min-h-screen">
         <NavBar />
-        {/* Back button */}
-        <div className="fixed top-14 left-0 right-0 z-40 border-b border-white/[0.04] bg-[#080b10]/80 backdrop-blur-xl">
-          <div className="max-w-6xl mx-auto px-6 h-10 flex items-center">
+        <div className="fixed inset-x-0 top-14 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+          <div className="mx-auto flex h-10 max-w-6xl items-center px-6">
             <button
               onClick={() => setSelected(null)}
-              className="flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-white/30 hover:text-white/60 transition-colors"
+              className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
             >
-              <ArrowLeft className="w-3 h-3" />
-              Back to History
+              <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+              Back to history
             </button>
           </div>
         </div>
-        {/* Offset for the extra bar */}
         <div className="pt-10">
           <ScanResults
             result={scanResult}
@@ -107,85 +113,128 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#080b10] text-white font-mono">
+    <div className="min-h-screen">
       <NavBar />
 
-      <main className="max-w-3xl mx-auto px-6 pt-24 pb-20">
-        <div className="flex items-center justify-between mb-8">
+      <main className="mx-auto max-w-3xl px-6 pb-20 pt-24">
+        <div className="mb-8 flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-lg font-semibold text-white/90">Scan History</h1>
-            <p className="text-xs text-white/30 mt-1">Your past contract audits</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Scan history</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Your past contract audits</p>
           </div>
-          <span className="text-[11px] text-white/25 uppercase tracking-widest">
-            {scans.length} scan{scans.length !== 1 ? "s" : ""}
-          </span>
+          {!loading && scans.length > 0 && (
+            <span className="shrink-0 text-xs uppercase tracking-widest text-subtle">
+              {scans.length} scan{scans.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
 
+        {error && (
+          <p role="alert" className="mb-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 rounded-2xl bg-white/[0.02] border border-white/[0.05] animate-pulse" />
+          <div className="space-y-2" aria-busy="true" aria-label="Loading scan history">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-[72px] w-full rounded-lg" />
             ))}
           </div>
         ) : scans.length === 0 ? (
-          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-12 text-center">
-            <FileCode className="w-8 h-8 text-white/20 mx-auto mb-3" />
-            <p className="text-sm text-white/40">No scans yet</p>
-            <p className="text-xs text-white/20 mt-1">Upload a contract to get started</p>
-            <button
-              onClick={() => router.push("/")}
-              className="mt-6 px-5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white/60 hover:text-white/80 transition-all"
-            >
-              Scan a Contract
-            </button>
+          <div className="rounded-lg border border-border bg-card p-12 text-center">
+            <FileCode className="mx-auto mb-3 h-8 w-8 text-subtle" aria-hidden="true" />
+            <p className="text-base font-medium text-foreground">No scans yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">Upload a contract to get started</p>
+            <Button className="mt-6" onClick={() => router.push("/")}>
+              Scan a contract
+            </Button>
           </div>
         ) : (
-          <div className="space-y-2">
-            {scans.map((scan) => (
-              <div
-                key={scan.id}
-                onClick={() => setSelected(scan)}
-                className="group flex items-center gap-4 px-5 py-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/[0.15] transition-all cursor-pointer"
-              >
-                {/* Risk score */}
-                <div className="flex-shrink-0 text-center w-12">
-                  <span className={`text-xl font-bold font-mono ${getRiskColor(scan.risk_score)}`}>
-                    {scan.risk_score}
-                  </span>
-                  <p className={`text-[9px] uppercase tracking-widest ${getRiskColor(scan.risk_score)} opacity-70`}>
-                    {getRiskLabel(scan.risk_score)}
-                  </p>
-                </div>
-
-                <div className="w-px self-stretch bg-white/[0.06]" />
-
-                {/* File info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <FileCode className="w-3 h-3 text-white/30 flex-shrink-0" />
-                    <span className="text-sm text-white/80 truncate">{scan.file_name}</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] text-white/25">
-                      {scan.total_findings} finding{scan.total_findings !== 1 ? "s" : ""}
-                    </span>
-                    <span className="text-[11px] text-white/20">·</span>
-                    <span className="text-[11px] text-white/25">{formatDate(scan.created_at)}</span>
-                  </div>
-                </div>
-
-                {/* Delete — always reserve space so layout doesn't shift */}
-                <button
-                  onClick={(e) => handleDelete(e, scan.id)}
-                  className="flex-shrink-0 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-white/20 hover:text-red-400 transition-all"
+          <ul className="space-y-2">
+            {scans.map((scan) => {
+              const { hex } = bandMeta(scan.risk_score);
+              return (
+                <li
+                  key={scan.id}
+                  className="flex items-stretch gap-1 rounded-lg border border-border bg-card transition-colors hover:border-border-strong hover:bg-elevated"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
+                  {/* A real button, so the row is reachable by keyboard. It was
+                      previously a div with onClick, which nothing but a mouse
+                      could operate. */}
+                  <button
+                    type="button"
+                    onClick={() => setSelected(scan)}
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-l-lg px-5 py-4 text-left"
+                  >
+                    <span className="w-12 shrink-0 text-center">
+                      <span
+                        className="block font-mono text-xl font-bold tabular-nums"
+                        style={{ color: hex }}
+                      >
+                        {scan.risk_score}
+                      </span>
+                      <span
+                        className="block text-xs uppercase tracking-widest"
+                        style={{ color: hex }}
+                      >
+                        {riskLabelShort(scan.risk_score)}
+                      </span>
+                    </span>
+
+                    <span className="w-px self-stretch bg-border" aria-hidden="true" />
+
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <FileCode className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <span className="truncate font-mono text-sm text-foreground">{scan.file_name}</span>
+                      </span>
+                      <span className="mt-1 block text-sm text-muted-foreground">
+                        {scan.total_findings} finding{scan.total_findings !== 1 ? "s" : ""}
+                        {" · "}
+                        {formatDate(scan.created_at)}
+                      </span>
+                    </span>
+                  </button>
+
+                  {/* Always in the layout and always focusable. Hiding it behind
+                      opacity-0 until hover made it unreachable by keyboard. */}
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(scan)}
+                    aria-label={`Delete scan of ${scan.file_name}`}
+                    className="shrink-0 self-center rounded-md p-2 text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </main>
+
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this scan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `The saved report for ${pendingDelete.file_name} will be removed from your history. This cannot be undone.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

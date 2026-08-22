@@ -2,16 +2,182 @@
 @tailwind components;
 @tailwind utilities;
 
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body { font-family: 'Courier New', ui-monospace, monospace; }
+/* ==========================================================================
+   ChainAudit design tokens — three layers.
+   Direction and palette: design-system/chainaudit/MASTER.md
 
-::selection {
-  background-color: rgba(0, 255, 136, 0.2);
-  color: #fff;
+   Colours are stored as bare "H S% L%" channels, not finished colours, so
+   Tailwind can compose them with an alpha value (`hsl(var(--border) / 0.4)`).
+   Components must never reference layer 1 directly.
+   ========================================================================== */
+
+@layer base {
+  :root {
+    /* --- Layer 1: primitives -------------------------------------------
+       Raw values with no assigned meaning. The `ink` ramp is the product's
+       own dark chrome, not Tailwind's slate — the two are close but the
+       lower steps are pulled bluer so surfaces separate on OLED. */
+
+    --ink-950: 229 84% 5%;    /* #020617 */
+    --ink-900: 229 43% 10%;   /* #0E1223 */
+    --ink-800: 222 33% 16%;   /* #1B2336 */
+    --ink-700: 215 25% 27%;   /* #334155 */
+    --ink-600: 215 19% 35%;   /* #475569 */
+    --ink-400: 214 15% 53%;   /* #748499 */
+    --ink-300: 215 20% 65%;   /* #94A3B8 */
+    --ink-50:  210 40% 98%;   /* #F8FAFC */
+
+    --green-600: 142 76% 36%; /* #16A34A */
+    --green-500: 142 71% 45%; /* #22C55E */
+    --green-400: 142 69% 58%; /* #4ADE80 */
+
+    --sky-400:  199 92% 60%;  /* #38BDF8 */
+    --amber-500: 38 92% 50%;  /* #F59E0B */
+    --red-500:    0 84% 60%;  /* #EF4444 */
+    --red-400:    0 91% 71%;  /* #F87171 */
+    --orange-400: 27 96% 61%; /* #FB923C */
+    --amber-400:  43 96% 56%; /* #FBBF24 */
+    --blue-400:  213 94% 68%; /* #60A5FA */
+    --pink-400:  330 81% 71%; /* #F472B6 */
+
+    /* --- Layer 2: semantic ----------------------------------------------
+       What a colour is *for*. Every ratio below is measured against
+       --background; see the contrast note at the foot of this file. */
+
+    --background:        var(--ink-950);
+    --foreground:        var(--ink-50);    /* 19.3:1 */
+    --card:              var(--ink-900);
+    --card-foreground:   var(--ink-50);
+    --elevated:          var(--ink-800);
+    --muted:             var(--ink-800);
+    --muted-foreground:  var(--ink-300);   /*  7.9:1 */
+    --subtle-foreground: var(--ink-400);   /*  5.3:1 — the floor for text */
+    --border:            var(--ink-700);
+    --border-strong:     var(--ink-600);
+    --input:             var(--ink-700);
+
+    --primary:            var(--green-500);
+    --primary-foreground: var(--ink-950);
+    --primary-hover:      var(--green-600);
+    --ring:               var(--green-500);
+
+    --destructive:            var(--red-500);
+    --destructive-foreground: var(--ink-50);
+
+    /* Content-type accents. The scanner handles three input kinds and the UI
+       has always colour-coded them; these give that habit a name. */
+    --info:    var(--sky-400);   /* .zip / multi-contract */
+    --warning: var(--amber-500); /* .rs / Solana */
+
+    /* shadcn/ui expects these names. They are aliases onto the semantic layer
+       above, not new decisions, so an imported primitive inherits the product
+       palette without being re-themed by hand. */
+    --secondary:            var(--elevated);
+    --secondary-foreground: var(--ink-50);
+    --accent:               var(--elevated);
+    --accent-foreground:    var(--ink-50);
+    --popover:              var(--card);
+    --popover-foreground:   var(--ink-50);
+
+    /* Severity — the single source of truth.
+       Banding and colour intent follow the CLI's _risk_label/_risk_style in
+       backend/src/chainaudit/cli.py, which is authoritative. Note that green
+       means MINIMAL, never LOW: low severity is blue. Consumed through
+       lib/severity.ts, which is the only module that should read these. */
+    --severity-critical: var(--red-400);    /*  7.3:1 */
+    --severity-high:     var(--orange-400); /*  8.9:1 */
+    --severity-medium:   var(--amber-400);  /* 12.1:1 */
+    --severity-low:      var(--blue-400);   /*  7.9:1 */
+    --severity-minimal:  var(--green-400);  /* 11.6:1 */
+
+    /* Syntax highlighting, for the code samples on the landing page. */
+    --syntax-keyword: var(--pink-400);
+    --syntax-type:    var(--amber-400);
+    --syntax-string:  var(--green-400);
+    --syntax-comment: var(--ink-400);
+    --syntax-punct:   var(--ink-300);
+
+    /* Radius */
+    --radius-sm: 0.375rem;
+    --radius:    0.625rem;
+    --radius-lg: 0.875rem;
+    --radius-xl: 1.125rem;
+
+    /* Motion. Exits are quicker than entrances — a leaving element has
+       already been dismissed, so lingering on it reads as lag. */
+    --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+    --duration-fast: 150ms;
+    --duration:      220ms;
+    --duration-slow: 400ms;
+
+    /* --- Layer 3: component --------------------------------------------- */
+    --gauge-track:       var(--ink-800);
+    --gauge-stroke:      10px;
+    --badge-radius:      var(--radius-sm);
+    --card-radius:       var(--radius-lg);
+    --finding-accent-w:  3px;
+  }
 }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Mono is for machine text only — code, addresses, hashes, scores.
+     Applying it to prose is what made the old build read as a toy. */
+  code, pre, kbd, samp {
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+
+  /* A visible focus ring is non-negotiable; :focus-visible keeps it off
+     mouse clicks so it costs nothing visually. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background-color: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border: 2px solid hsl(var(--background));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--border-strong)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Contrast, measured against --background (#020617):
+   Every token above that carries text clears WCAG AA (4.5:1), with
+   --subtle-foreground at 5.3:1 as the deliberate floor. The previous build
+   leaned on white/25 and white/40, which measure 2.1:1 and 3.7:1 — both
+   below AA, which is why so much of the old UI was hard to read.
+   --border and --border-strong are non-text and are exempt. */

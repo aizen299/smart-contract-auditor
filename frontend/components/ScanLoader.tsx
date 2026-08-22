@@ -41,29 +41,29 @@ export function ScanLoader({ fileName }: ScanLoaderProps) {
     <div className="min-h-screen flex flex-col items-center justify-center px-6 pt-14">
       {/* Background pulse */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[500px] h-[500px] rounded-full border border-[#00ff88]/[0.04] animate-ping" style={{ animationDuration: "3s" }} />
-        <div className="absolute w-[350px] h-[350px] rounded-full border border-[#00ff88]/[0.06] animate-ping" style={{ animationDuration: "2.2s", animationDelay: "0.4s" }} />
+        <div className="w-[500px] h-[500px] rounded-full border border-primary/[0.04] animate-ping" style={{ animationDuration: "3s" }} />
+        <div className="absolute w-[350px] h-[350px] rounded-full border border-primary/[0.06] animate-ping" style={{ animationDuration: "2.2s", animationDelay: "0.4s" }} />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
         {/* File info */}
-        <div className="flex items-center gap-3 mb-8 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.07]">
-          <div className="w-8 h-8 rounded-lg bg-[#00ff88]/10 border border-[#00ff88]/20 flex items-center justify-center flex-shrink-0">
-            <FileCode className="w-4 h-4 text-[#00ff88]" />
+        <div className="flex items-center gap-3 mb-8 px-4 py-3 rounded-md bg-card border border-border">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+            <FileCode className="w-4 h-4 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-white/80 text-sm font-medium truncate">{fileName}</p>
-            <p className="text-white/30 text-xs">Scanning now...</p>
+            <p className="text-foreground text-sm font-medium truncate">{fileName}</p>
+            <p className="text-muted-foreground text-xs">Scanning now...</p>
           </div>
-          <div className="ml-auto text-[#00ff88] text-sm font-semibold font-mono tabular-nums">
+          <div className="ml-auto text-primary text-sm font-semibold font-mono tabular-nums">
             {progress}%
           </div>
         </div>
 
         {/* Progress bar */}
-        <div className="h-px bg-white/[0.06] rounded-full mb-8 overflow-hidden">
+        <div className="h-px bg-elevated rounded-full mb-8 overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-[#00ff88] to-[#00d4ff] rounded-full transition-all duration-300 ease-out relative"
+            className="h-full bg-gradient-to-r from-primary to-info rounded-full transition-all duration-300 ease-out relative"
             style={{ width: `${progress}%` }}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-white shadow-[0_0_8px_rgba(0,255,136,0.8)]" />
@@ -78,42 +78,42 @@ export function ScanLoader({ fileName }: ScanLoaderProps) {
             return (
               <div
                 key={s.label}
-                className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${
+                className={`flex items-center gap-3 p-3 rounded-md transition-all duration-500 ${
                   isActive
-                    ? "bg-white/[0.04] border border-white/[0.08]"
+                    ? "bg-elevated border border-border"
                     : "opacity-40"
                 }`}
               >
                 {/* Status icon */}
                 <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center border transition-all duration-500 ${
                   isDone
-                    ? "bg-[#00ff88]/20 border-[#00ff88]/40"
+                    ? "bg-primary/20 border-primary/40"
                     : isActive
-                    ? "border-[#00ff88]/40"
-                    : "border-white/10"
+                    ? "border-primary/40"
+                    : "border-border"
                 }`}>
                   {isDone ? (
-                    <svg className="w-2.5 h-2.5 text-[#00ff88]" viewBox="0 0 10 10" fill="none">
+                    <svg className="w-2.5 h-2.5 text-primary" viewBox="0 0 10 10" fill="none">
                       <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   ) : isActive ? (
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#00ff88] animate-pulse" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                   ) : (
                     <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
                   )}
                 </div>
 
                 <div className="min-w-0">
-                  <p className={`text-xs font-medium tracking-wide transition-colors ${isActive || isDone ? "text-white/80" : "text-white/30"}`}>
+                  <p className={`text-xs font-medium tracking-wide transition-colors ${isActive || isDone ? "text-foreground" : "text-muted-foreground"}`}>
                     {s.label}
                   </p>
                   {isActive && (
-                    <p className="text-[11px] text-white/30 mt-0.5 animate-pulse">{s.detail}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 animate-pulse">{s.detail}</p>
                   )}
                 </div>
 
                 {isDone && (
-                  <div className="ml-auto text-[10px] text-[#00ff88]/60 tracking-widest uppercase">done</div>
+                  <div className="ml-auto text-xs text-primary/60 tracking-widest uppercase">done</div>
                 )}
               </div>
             );
@@ -125,7 +125,7 @@ export function ScanLoader({ fileName }: ScanLoaderProps) {
           {[0, 1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="w-1 rounded-full bg-[#00ff88]/50 animate-bounce"
+              className="w-1 rounded-full bg-primary/50 animate-bounce"
               style={{
                 height: `${8 + (i % 3) * 4}px`,
                 animationDelay: `${i * 0.1}s`,
