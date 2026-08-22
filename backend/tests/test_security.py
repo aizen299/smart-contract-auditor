@@ -6,12 +6,19 @@ disclosure. Each test targets a specific failure mode that was previously
 reachable by an unauthenticated caller.
 """
 
+import base64
+import hashlib
+import hmac
 import io
+import json
 import time as _time
 import zipfile
+from types import SimpleNamespace
 
 import jwt as _jwt
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi.testclient import TestClient
 
 import api
@@ -335,3 +342,199 @@ class TestAuthentication:
     def test_health_stays_public(self, client, auth_enabled):
         assert client.get("/health").status_code == 200
         assert client.get("/chains").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Asymmetric (JWKS / ES256) verification — the mode Supabase projects use once
+# they have rotated to signing keys.
+# ---------------------------------------------------------------------------
+
+class _FakeJWKClient:
+    """Stands in for PyJWKClient so tests never touch the network."""
+
+    def __init__(self, key, kid="test-kid"):
+        self._key = key
+        self._kid = kid
+
+    def get_signing_key_from_jwt(self, token):
+        header = _jwt.get_unverified_header(token)
+        if header.get("kid") != self._kid:
+            raise _jwt.exceptions.PyJWKClientError("no matching kid")
+        return SimpleNamespace(key=self._key)
+
+
+@pytest.fixture
+def ec_keys():
+    private = ec.generate_private_key(ec.SECP256R1())
+    return private, private.public_key()
+
+
+@pytest.fixture
+def jwks_enabled(monkeypatch, ec_keys):
+    _, public = ec_keys
+    monkeypatch.setattr(api, "REQUIRE_AUTH", True)
+    monkeypatch.setattr(api, "SUPABASE_JWKS_URL", "https://proj.supabase.co/auth/v1/.well-known/jwks.json")
+    monkeypatch.setattr(api, "SUPABASE_JWT_SECRET", "")
+    monkeypatch.setattr(api, "_get_jwk_client", lambda: _FakeJWKClient(public))
+
+
+def make_es256_token(private_key, kid="test-kid", **overrides) -> str:
+    claims = {
+        "sub": "99999999-8888-7777-6666-555555555555",
+        "email": "ecc@example.com",
+        "aud": "authenticated",
+        "exp": int(_time.time()) + 3600,
+    }
+    claims.update(overrides)
+    return _jwt.encode(claims, private_key, algorithm="ES256", headers={"kid": kid})
+
+
+class TestAsymmetricAuth:
+    def test_es256_token_is_accepted(self, client, jwks_enabled, ec_keys):
+        private, _ = ec_keys
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_es256_token(private)}"},
+        )
+        assert resp.status_code != 401, "a validly signed ES256 token must pass"
+
+    def test_token_from_a_different_key_is_rejected(self, client, jwks_enabled):
+        """A token signed by any other EC key must not verify."""
+        attacker = ec.generate_private_key(ec.SECP256R1())
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_es256_token(attacker)}"},
+        )
+        assert resp.status_code == 401
+
+    def test_expired_es256_token_is_rejected(self, client, jwks_enabled, ec_keys):
+        private, _ = ec_keys
+        token = make_es256_token(private, exp=int(_time.time()) - 60)
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+        assert "expired" in resp.json()["detail"].lower()
+
+    def test_wrong_audience_es256_is_rejected(self, client, jwks_enabled, ec_keys):
+        private, _ = ec_keys
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_es256_token(private, aud='anon')}"},
+        )
+        assert resp.status_code == 401
+
+    def test_unknown_kid_is_rejected_as_a_bad_credential(
+        self, client, jwks_enabled, ec_keys
+    ):
+        """A key set that holds no key for this token means the token is bad."""
+        private, _ = ec_keys
+        token = make_es256_token(private, kid="rotated-away")
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 401
+
+    def test_unreachable_jwks_is_a_503_not_a_401(
+        self, client, monkeypatch, ec_keys
+    ):
+        """
+        An outage must not tell a signed-in user their credential is bad — they
+        would sign in again to no effect, and the real cause would be hidden.
+        """
+        private, _ = ec_keys
+
+        class Unreachable:
+            def get_signing_key_from_jwt(self, token):
+                raise _jwt.exceptions.PyJWKClientConnectionError("connection refused")
+
+        monkeypatch.setattr(api, "REQUIRE_AUTH", True)
+        monkeypatch.setattr(api, "SUPABASE_JWKS_URL", "https://proj.supabase.co/jwks")
+        monkeypatch.setattr(api, "SUPABASE_JWT_SECRET", "")
+        monkeypatch.setattr(api, "_get_jwk_client", lambda: Unreachable())
+
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_es256_token(private)}"},
+        )
+        assert resp.status_code == 503
+
+    def test_hs256_algorithm_confusion_is_rejected(self, client, jwks_enabled, ec_keys):
+        """
+        The classic attack on JWKS verifiers: sign HS256 using the *public* key
+        as the HMAC secret, so a verifier that trusts the token's own `alg`
+        header validates the attacker's signature against public material.
+
+        `algorithms` here lists only ES256/RS256, which is the actual defence.
+        PyJWT happens to add a second layer — the key PyJWKClient returns is a
+        key object, and its HMAC path rejects that by type — so adding HS256 to
+        the list would surface as a type error rather than a silent bypass.
+        This test asserts the outcome that matters either way: the forged token
+        does not authenticate, and the assertion trips if HS256 is ever added.
+        """
+        _, public = ec_keys
+        pem = public.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+
+        def b64u(raw: bytes) -> bytes:
+            return base64.urlsafe_b64encode(raw).rstrip(b"=")
+
+        header = b64u(json.dumps(
+            {"alg": "HS256", "typ": "JWT", "kid": "test-kid"}
+        ).encode())
+        payload = b64u(json.dumps({
+            "sub": "attacker",
+            "aud": "authenticated",
+            "exp": int(_time.time()) + 3600,
+        }).encode())
+        signing_input = header + b"." + payload
+        signature = b64u(hmac.new(pem, signing_input, hashlib.sha256).digest())
+        forged = (signing_input + b"." + signature).decode()
+        resp = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {forged}"},
+        )
+        assert resp.status_code == 401
+
+    def test_jwks_takes_precedence_over_a_stale_shared_secret(
+        self, client, monkeypatch, ec_keys
+    ):
+        """
+        A project that rotated to signing keys still lists its old HS256 secret.
+        If both are configured, JWKS must win — otherwise every current login
+        would be rejected against a secret that no longer signs anything.
+        """
+        private, public = ec_keys
+        monkeypatch.setattr(api, "REQUIRE_AUTH", True)
+        monkeypatch.setattr(api, "SUPABASE_JWKS_URL", "https://proj.supabase.co/jwks")
+        monkeypatch.setattr(api, "SUPABASE_JWT_SECRET", TEST_SECRET)
+        monkeypatch.setattr(api, "_get_jwk_client", lambda: _FakeJWKClient(public))
+
+        # The current ES256 token is accepted...
+        ok = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_es256_token(private)}"},
+        )
+        assert ok.status_code != 401
+
+        # ...and a token signed with the legacy secret is not. It carries no
+        # `kid`, so no key in the set matches it: a bad credential, not an
+        # outage, hence 401 rather than 503.
+        legacy = client.post(
+            "/scan",
+            files={"file": ("a.sol", VALID_SOL, "text/plain")},
+            headers={"Authorization": f"Bearer {make_token()}"},
+        )
+        assert legacy.status_code == 401

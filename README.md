@@ -106,14 +106,31 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-**`backend/.env`** — the scan endpoints verify a Supabase access token, so the
-API needs the project's JWT secret (Supabase dashboard → Project Settings → API
-→ JWT Secret). Without it `/scan*` returns 503 rather than accepting anonymous
+**`backend/.env`** — the scan endpoints verify a Supabase access token. With
+neither variable below set, `/scan*` returns 503 rather than accepting anonymous
 requests.
-```
-SUPABASE_JWT_SECRET=your_supabase_jwt_secret
 
+Projects on **JWT signing keys** (Supabase dashboard → Settings → JWT Keys →
+*JWT Signing Keys*, showing an ECC or RSA current key) verify against the
+project's public keys. Set the project URL and the JWKS endpoint is derived:
+```
+SUPABASE_URL=https://your-project-ref.supabase.co
+```
+
+Projects still on the **legacy shared secret** (JWT Keys → *Legacy JWT Secret*)
+set that instead:
+```
+SUPABASE_JWT_SECRET=your_legacy_jwt_secret
+```
+
+> If the dashboard lists an ECC/RSA key as *current* and HS256 only under
+> "previously used keys", use `SUPABASE_URL`. The legacy secret no longer signs
+> new tokens, so configuring it would reject every current login. When both are
+> set, JWKS wins.
+
+```
 # Optional
+SUPABASE_JWKS_URL=                    # override the derived JWKS endpoint
 CHAINAUDIT_REQUIRE_AUTH=true          # false runs an intentionally open instance
 CHAINAUDIT_ALLOWED_ORIGINS=https://chainaudit.vercel.app,http://localhost:3000
 CHAINAUDIT_RATE_LIMIT_REQUESTS=10     # per client, per window

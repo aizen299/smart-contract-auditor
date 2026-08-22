@@ -43,25 +43,47 @@ app = FastAPI()
 # history while scanning itself was open to anyone with the Render URL, so login
 # carried no security meaning.
 #
-# The token is verified locally against the project's JWT secret — no round trip
-# to Supabase per request. Set SUPABASE_JWT_SECRET (Supabase dashboard →
-# Project Settings → API → JWT Secret) wherever the service runs.
+# Two verification modes, because Supabase is mid-migration between them:
 #
-# Fails closed: if the secret is not configured the scan endpoints return 503
-# rather than silently accepting everything. Set CHAINAUDIT_REQUIRE_AUTH=false to
-# deliberately run an open instance (local development, self-hosting).
+#   JWKS (preferred) — projects now sign with asymmetric keys (ES256 over ECC
+#     P-256, or RS256). There is no shared secret to hold; the public keys are
+#     fetched once from the project's JWKS endpoint and cached, so steady-state
+#     verification is still local. Set SUPABASE_URL and the endpoint is derived,
+#     or set SUPABASE_JWKS_URL explicitly.
+#
+#   HS256 (legacy) — older projects sign with a single shared secret. Set
+#     SUPABASE_JWT_SECRET. Note that a project which has rotated to asymmetric
+#     keys keeps its old HS256 secret listed only to verify already-issued
+#     tokens; configuring it there would reject every current login.
+#
+# JWKS wins if both are set. Fails closed: with neither configured the scan
+# endpoints return 503 rather than silently accepting everything. Set
+# CHAINAUDIT_REQUIRE_AUTH=false to deliberately run an open instance.
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_JWKS_URL = os.environ.get(
+    "SUPABASE_JWKS_URL",
+    f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else "",
+)
 REQUIRE_AUTH = os.environ.get("CHAINAUDIT_REQUIRE_AUTH", "true").lower() != "false"
 # Supabase stamps this audience on user tokens.
 _JWT_AUDIENCE = os.environ.get("SUPABASE_JWT_AUDIENCE", "authenticated")
+# Asymmetric algorithms Supabase issues. HS256 is deliberately absent: allowing
+# it alongside JWKS would let a caller present an HS256 token signed with a
+# public key as the HMAC secret — the classic algorithm-confusion attack.
+_ASYMMETRIC_ALGS = ["ES256", "RS256"]
 
-if REQUIRE_AUTH and not SUPABASE_JWT_SECRET:
+_jwk_client: "jwt.PyJWKClient | None" = None
+_jwk_lock = threading.Lock()
+
+if REQUIRE_AUTH and not (SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET):
     log.critical(
-        "CHAINAUDIT_REQUIRE_AUTH is on but SUPABASE_JWT_SECRET is unset — "
-        "scan endpoints will return 503 until it is configured. Set "
-        "CHAINAUDIT_REQUIRE_AUTH=false to run an intentionally open instance."
+        "CHAINAUDIT_REQUIRE_AUTH is on but neither SUPABASE_URL/SUPABASE_JWKS_URL "
+        "nor SUPABASE_JWT_SECRET is set — scan endpoints will return 503 until "
+        "one is configured. Set CHAINAUDIT_REQUIRE_AUTH=false to run an "
+        "intentionally open instance."
     )
 
 
@@ -78,18 +100,57 @@ def _bearer_token(request: Request) -> str | None:
     return token.strip()
 
 
+def _get_jwk_client() -> "jwt.PyJWKClient":
+    """
+    Lazily build the JWKS client, shared across requests.
+
+    PyJWKClient caches the key set and refetches when it sees an unknown `kid`,
+    so key rotation is picked up without a redeploy and the common path stays a
+    local signature check. Built under a lock because scans run in a threadpool.
+    """
+    global _jwk_client
+    with _jwk_lock:
+        if _jwk_client is None:
+            _jwk_client = jwt.PyJWKClient(SUPABASE_JWKS_URL, cache_keys=True)
+        return _jwk_client
+
+
 def verify_token(token: str) -> AuthenticatedUser:
     """Decode and validate a Supabase access token. Raises HTTPException on failure."""
     try:
-        claims = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience=_JWT_AUDIENCE,
-            # Signature, expiry and audience are all enforced. `sub` is required
-            # because it is the identity the rate limiter and logs key on.
-            options={"require": ["exp", "sub"]},
-        )
+        if SUPABASE_JWKS_URL:
+            try:
+                signing_key = _get_jwk_client().get_signing_key_from_jwt(token).key
+            except jwt.exceptions.PyJWKClientConnectionError as exc:
+                # The JWKS endpoint is unreachable. Nothing is wrong with the
+                # caller's credential, so this must not masquerade as a 401 and
+                # tell a signed-in user to sign in again.
+                log.error("JWKS endpoint unreachable: %s", exc)
+                raise HTTPException(503, "Authentication is temporarily unavailable.")
+            except jwt.exceptions.PyJWKClientError as exc:
+                # The key set loaded but holds no key for this token's `kid` —
+                # a token from another project, a hand-made one, or one signed
+                # by a key that has since been revoked. That is a bad
+                # credential, not an outage.
+                log.warning("No JWKS key matches the presented token: %s", exc)
+                raise HTTPException(401, "Invalid authentication token.")
+            claims = jwt.decode(
+                token,
+                signing_key,
+                algorithms=_ASYMMETRIC_ALGS,
+                audience=_JWT_AUDIENCE,
+                options={"require": ["exp", "sub"]},
+            )
+        else:
+            claims = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                # Signature, expiry and audience are all enforced. `sub` is
+                # required because it is the identity logs key on.
+                audience=_JWT_AUDIENCE,
+                options={"require": ["exp", "sub"]},
+            )
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Session expired. Sign in again.")
     except jwt.InvalidTokenError:
@@ -108,7 +169,7 @@ async def require_user(request: Request) -> AuthenticatedUser | None:
     if not REQUIRE_AUTH:
         return None
 
-    if not SUPABASE_JWT_SECRET:
+    if not (SUPABASE_JWKS_URL or SUPABASE_JWT_SECRET):
         raise HTTPException(503, "Authentication is not configured on this server.")
 
     token = _bearer_token(request)

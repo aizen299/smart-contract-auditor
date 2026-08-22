@@ -126,7 +126,18 @@ ML failure never fails a scan (`ml_exploitability: "unknown"`), but it is no lon
 
 The frontend never calls the backend origin directly from the browser: `next.config.mjs` `rewrites()` proxy `/api/scan*` → `NEXT_PUBLIC_API_URL`. That's also why the CSP `connect-src` only lists Supabase. Supabase handles auth (middleware refreshes the session on every non-static request) and stores scan history in a `scans` table written client-side from `app/page.tsx` after a successful single-file scan.
 
-**The scan API requires a Supabase JWT.** `require_user` (a FastAPI dependency on all three `/scan*` routes) verifies the bearer token locally against `SUPABASE_JWT_SECRET` — HS256, with signature, `exp` and `aud` all enforced, and no round trip to Supabase per request. It **fails closed**: with `CHAINAUDIT_REQUIRE_AUTH` on and no secret configured, scans return 503 rather than accepting everyone. `CHAINAUDIT_REQUIRE_AUTH=false` runs an intentionally open instance.
+**The scan API requires a Supabase JWT.** `require_user` (a FastAPI dependency on all three `/scan*` routes) verifies the bearer token with signature, `exp` and `aud` all enforced. Two modes, because Supabase is mid-migration:
+
+- **JWKS** (this project's mode) — the token is ES256/RS256 signed by the project's asymmetric key. `PyJWKClient` fetches the public keys from `SUPABASE_URL`'s JWKS endpoint once and caches them, refetching only on an unseen `kid`, so steady-state verification is local and rotation needs no redeploy.
+- **HS256** — legacy shared secret via `SUPABASE_JWT_SECRET`, for older or self-hosted projects.
+
+JWKS wins when both are configured, which matters: a project that has rotated to signing keys still lists its old HS256 secret under "previously used keys", and verifying against it would reject every current login.
+
+`_ASYMMETRIC_ALGS` deliberately excludes HS256. Accepting it alongside asymmetric algorithms is the algorithm-confusion attack — an attacker signs HS256 using the public key as the HMAC secret. `TestAsymmetricAuth` covers it.
+
+Error taxonomy is load-bearing: an unreachable JWKS endpoint is a **503** (the caller's credential is fine), while a key set with no matching `kid` is a **401** (the credential is bad). Collapsing both into one status either tells signed-in users to re-login during an outage, or reports bad tokens as server faults.
+
+It **fails closed**: with `CHAINAUDIT_REQUIRE_AUTH` on and neither variable set, scans return 503 rather than accepting everyone. `CHAINAUDIT_REQUIRE_AUTH=false` runs an intentionally open instance.
 
 The frontend reads `session.access_token` in `app/page.tsx` and sends it as `Authorization: Bearer …`; Next's rewrite forwards the header to the backend. No session, or a 401 back, redirects to `/login`.
 
@@ -146,8 +157,8 @@ The rate limiter still keys on IP, not user id, and deliberately so: the middlew
 
 Everything else from the security review has been fixed; these are what remain.
 
-- **`SUPABASE_JWT_SECRET` must be set wherever the API runs.** Without it every scan returns 503 by design. This is deployment configuration, not a code gap — but it does mean a fresh environment is non-functional until it is set.
-- **Auth is HS256 against the project JWT secret.** Supabase projects using asymmetric signing keys (RS256/ES256 via JWKS) would need `verify_token` extended; the current path covers the shared-secret setup.
+- **`SUPABASE_URL` (or `SUPABASE_JWT_SECRET`) must be set wherever the API runs.** Without one, every scan returns 503 by design. Deployment configuration, not a code gap — but a fresh environment is non-functional until it is set.
+- **First request after a cold start fetches the JWKS.** One network call, then cached. If Supabase's auth endpoint is down, scans return 503 until it recovers.
 - **Rate limiting is in-process.** Correct for the current single-worker Render deployment. More than one worker or instance needs a shared store; the buckets do not coordinate.
 - **`X-Forwarded-For` is trusted for client identity.** Safe only because Render terminates TLS in front of the app and rewrites the header. Direct exposure would make the limiter trivially bypassable.
 - **Solana anti-pattern suppression is file-wide.** One `checked_add` anywhere suppresses `integer-overflow` for the whole file. This is a deliberate false-positive tradeoff, but it does mean a partially-safe file can hide a real finding.
