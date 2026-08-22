@@ -1,6 +1,7 @@
 "use client";
 
-import { ShieldCheck, RotateCcw, LogOut, User } from "lucide-react";
+import { RotateCcw, LogOut, User } from "lucide-react";
+import { Logo } from "@/components/brand/Logo";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -38,7 +39,7 @@ export function NavBar({ onReset }: NavBarProps) {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06] bg-[#080b10]/80 backdrop-blur-xl">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur-xl">
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
 
         <Link
@@ -51,16 +52,8 @@ export function NavBar({ onReset }: NavBarProps) {
   }}
   className="flex items-center gap-2.5"
 >
-          <div className="relative">
-            <div className="absolute inset-0 rounded-lg bg-[#00ff88]/20 blur-sm" />
-            <div className="relative w-7 h-7 rounded-lg bg-gradient-to-br from-[#00ff88]/30 to-[#00d4ff]/20 border border-[#00ff88]/30 flex items-center justify-center">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#00ff88]" />
-            </div>
-          </div>
-          <span className="text-sm font-semibold tracking-widest text-white/90 uppercase">
-            ChainAudit
-          </span>
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20 font-semibold tracking-wider">
+          <Logo />
+          <span className="rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-xs font-semibold tracking-wider text-primary">
             BETA
           </span>
         </Link>
@@ -69,9 +62,9 @@ export function NavBar({ onReset }: NavBarProps) {
           {onReset && (
             <button
               onClick={onReset}
-              className="flex items-center gap-1.5 text-[11px] tracking-widest uppercase text-white/40 hover:text-white/70 transition-colors"
+              className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
             >
-              <RotateCcw className="w-3 h-3" />
+              <RotateCcw className="h-3 w-3" aria-hidden="true" />
               New Scan
             </button>
           )}
@@ -80,28 +73,28 @@ export function NavBar({ onReset }: NavBarProps) {
             <div className="flex items-center gap-3">
               <Link
                 href="/history"
-                className="text-[11px] tracking-widest uppercase text-white/40 hover:text-white/70 transition-colors"
+                className="text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
               >
                 History
               </Link>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-white/10 bg-white/[0.03]">
-                <User className="w-3 h-3 text-white/40" />
-                <span className="text-[11px] text-white/50 max-w-[120px] truncate">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5">
+                <User className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                <span className="max-w-[140px] truncate text-xs text-muted-foreground">
                   {user.email || user.user_metadata?.user_name || "User"}
                 </span>
               </div>
               <button
                 onClick={handleSignOut}
-                className="flex items-center gap-1.5 text-[11px] tracking-widest uppercase text-white/30 hover:text-red-400 transition-colors"
+                className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-destructive"
               >
-                <LogOut className="w-3 h-3" />
+                <LogOut className="h-3 w-3" aria-hidden="true" />
                 Sign Out
               </button>
             </div>
           ) : (
             <Link
               href="/login"
-              className="text-[11px] tracking-widest uppercase px-3 py-1.5 rounded-lg border border-white/10 text-white/50 hover:border-white/20 hover:text-white/70 transition-all"
+              className="rounded-md border border-border px-3 py-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:border-border-strong hover:text-foreground"
             >
               Sign In
             </Link>
