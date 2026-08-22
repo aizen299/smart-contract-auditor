@@ -14,7 +14,6 @@ import shutil
 from pathlib import Path
 
 from .solana_rules import (
-    SOLANA_RULES,
     SOLANA_PATTERNS,
     compute_solana_risk_score,
     get_rule,

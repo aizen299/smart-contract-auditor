@@ -157,9 +157,18 @@ SOLANA_RULES: list[SolanaRule] = [
         ),
         confidence="Medium",
         patterns=[
+            # Compound assignment: `balance += amount`
             r"\+=\s*\w+",
             r"-=\s*\w+",
             r"\*=\s*\w+",
+            # Plain binary arithmetic in an assignment: `balance = balance + 100`.
+            # This is the more common shape and was previously undetected, so
+            # unchecked arithmetic written this way produced no finding at all.
+            # The lookbehind keeps `==`, `!=`, `<=`, `>=` and the compound
+            # operators above from matching, and the lookahead requires at least
+            # one non-numeric operand so Anchor's `space = 8 + 32 + 1 + 8`
+            # account-size annotations are not reported as arithmetic.
+            r"(?<![=!<>+\-*/])=(?!=)\s*(?=[^;\n]*[A-Za-z_])[\w\.\[\]()]+\s*[+\-*]\s*[\w\.\[\]()]+",
         ],
         anti_patterns=[
             r"checked_add",

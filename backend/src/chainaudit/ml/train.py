@@ -11,7 +11,17 @@ from sklearn.metrics import classification_report
 import joblib
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SMARTBUGS_DIR = Path(__file__).resolve().parent.parent.parent / "ml" / "smartbugs" / "dataset"
+
+# Repo root is five levels up: ml/ -> chainaudit/ -> src/ -> backend/ -> root.
+# The SmartBugs dataset is a separate git-ignored checkout at <root>/ml/smartbugs.
+# Override with CHAINAUDIT_SMARTBUGS_DIR when training outside the repo layout.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+SMARTBUGS_DIR = Path(
+    os.environ.get(
+        "CHAINAUDIT_SMARTBUGS_DIR",
+        _REPO_ROOT / "ml" / "smartbugs" / "dataset",
+    )
+)
 REPORTS_DIR = BASE_DIR / "reports" / "ml_training"
 MODEL_DIR = BASE_DIR / "ml"
 SLITHER_JSON = REPORTS_DIR / "slither_tmp.json"
@@ -29,34 +39,12 @@ CATEGORY_TO_SEVERITY = {
     "other": "LOW",
 }
 
-CHECK_TO_INT = {
-    "reentrancy-eth": 0,
-    "reentrancy-no-eth": 1,
-    "reentrancy-benign": 2,
-    "reentrancy-events": 3,
-    "arbitrary-send-eth": 4,
-    "controlled-delegatecall": 5,
-    "suicidal": 6,
-    "tx-origin": 7,
-    "unchecked-transfer": 8,
-    "unchecked-lowlevel": 9,
-    "low-level-calls": 10,
-    "weak-prng": 11,
-    "timestamp": 12,
-    "unchecked-send": 13,
-    "incorrect-equality": 14,
-    "missing-zero-check": 15,
-    "events-access": 16,
-    "events-maths": 17,
-    "access-control": 18,
-    "deprecated-standards": 19,
-    "naming-convention": 20,
-    "reentrancy-unlimited-gas": 21,
-}
-
-IMPACT_TO_INT = {"High": 3, "Medium": 2, "Low": 1, "Informational": 0, "Optimization": 0}
-CONFIDENCE_TO_INT = {"High": 3, "Medium": 2, "Low": 1}
-SEVERITY_TO_INT = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
+from .mapping import (  # noqa: E402
+    CHECK_TO_INT,
+    CONFIDENCE_TO_INT,
+    IMPACT_TO_INT,
+    SEVERITY_TO_INT,
+)
 
 INSTALLED_VERSIONS = set()
 
@@ -99,7 +87,7 @@ def run_slither(contract_path: str) -> list:
     version = get_pragma_version(contract_path)
     switch_solc(version)
 
-    result = subprocess.run(
+    subprocess.run(
         ["slither", contract_path, "--json", str(SLITHER_JSON), "--detect", "all"],
         capture_output=True, text=True, timeout=60
     )
@@ -127,6 +115,14 @@ def extract_features(detector: dict, contract_size: int) -> dict:
 
 def build_dataset():
     rows = []
+
+    if not SMARTBUGS_DIR.is_dir():
+        raise FileNotFoundError(
+            f"SmartBugs dataset not found at {SMARTBUGS_DIR}.\n"
+            "It is a separate git-ignored checkout. Clone it with:\n"
+            "  git clone https://github.com/smartbugs/smartbugs-curated ml/smartbugs\n"
+            "or point CHAINAUDIT_SMARTBUGS_DIR at an existing copy."
+        )
 
     for category_dir in SMARTBUGS_DIR.iterdir():
         if not category_dir.is_dir():

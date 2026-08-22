@@ -5,8 +5,12 @@ All scan entry points in api.py should call route_scan() instead of
 importing scanner modules directly.
 """
 
-import os
 from pathlib import Path
+
+from .ml.mapping import (
+    SEVERITY_CONFIDENCE as _SEVERITY_CONFIDENCE,
+    SOLANA_TO_EVM_CHECK as _SOLANA_TO_EVM_CHECK,
+)
 
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -27,65 +31,56 @@ def route_scan(target: Path, ml_only: bool = False, scan_id: str | None = None) 
         return _scan_evm(target, chain=chain, ml_only=ml_only)
 
 
-def route_scan_source(source: str, filename: str, ml_only: bool = False) -> dict:
-    """
-    Scan from raw source string — used when file content is already in memory.
-    Writes to a temp file then calls route_scan.
-    """
-    import tempfile, shutil
-    suffix = Path(filename).suffix or ".sol"
-    tmp = Path(tempfile.mktemp(suffix=suffix))
-    try:
-        tmp.write_text(source, encoding="utf-8")
-        return route_scan(tmp, ml_only=ml_only)
-    finally:
-        if tmp.exists():
-            tmp.unlink()
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # EVM scanner
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _scan_evm(target: Path, chain: str = "ethereum", ml_only: bool = False) -> dict:
     """Run EVM scan via Slither + L2 rules + ML predictions."""
+    import tempfile
     from .evm_scanner import run_slither, parse_slither_report
     from .evm_rules import compute_risk_score
 
-    os.chdir(_BACKEND_DIR)
-    ok = run_slither(str(target))
-    if not ok:
-        return {
-            "status": "error",
-            "chain": chain,
-            "error": "Slither failed — possible syntax error or unsupported pragma",
-            "risk_score": 0,
-            "total_findings": 0,
-            "findings": [],
-        }
+    # No os.chdir here. It used to point the process at the backend directory,
+    # which is a process-global mutation — harmless while the API serialised
+    # every scan on the event loop, but a race now that scans run concurrently
+    # in a threadpool. run_slither already sets the subprocess cwd explicitly,
+    # so nothing needed the chdir.
+    #
+    # For the same reason each scan gets its own Slither output file rather than
+    # sharing one module-level path.
+    with tempfile.TemporaryDirectory(prefix="chainaudit_slither_") as tmp:
+        slither_json = Path(tmp) / "slither.json"
 
-    findings = parse_slither_report(target=str(target))
+        ok = run_slither(str(target), json_path=slither_json)
+        if not ok:
+            return {
+                "status": "error",
+                "chain": chain,
+                "error": "Slither failed — possible syntax error or unsupported pragma",
+                "risk_score": 0,
+                "total_findings": 0,
+                "findings": [],
+            }
+
+        findings = parse_slither_report(target=str(target), json_path=slither_json)
     risk_score = compute_risk_score(findings)
 
     # ML predictions
     findings = _add_ml_predictions_evm(findings, target)
 
-    # Exploit simulation (skipped if ml_only)
-    simulation = {"success": False, "stdout": "", "stderr": "skipped"}
-    if not ml_only:
-        try:
-            from .exploit_simulator import run_foundry_tests
-            simulation = run_foundry_tests(verbose=False)
-        except Exception as e:
-            simulation = {"success": False, "stdout": "", "stderr": str(e)}
-
+    # `exploit_simulation` used to be reported here. It ran `forge test` with the
+    # working directory pinned to the package, never the contract under scan, and
+    # the repo contains no foundry.toml or test files — so it executed nothing
+    # relevant while spawning the one subprocess in the codebase without a
+    # timeout. Removed rather than left as a field that always meant nothing.
+    # `ml_only` is retained as a no-op flag so the CLI surface is unchanged.
     return {
         "status": "success",
         "chain": chain,
         "risk_score": risk_score,
         "total_findings": len(findings),
         "findings": findings,
-        "exploit_simulation": simulation,
     }
 
 
@@ -115,43 +110,42 @@ def _add_ml_predictions_evm(findings: list[dict], target: Path) -> list[dict]:
 
 def _scan_solana(target: Path) -> dict:
     """Run Solana scan via cargo-audit + pattern scanner + ML predictions."""
+    import shutil as _shutil
+    import tempfile
     from .solana_scanner import scan_solana
-    # scan_solana expects a directory — if given a single file, use its parent
-    if target.is_file():
-        # Use a temp dir so scan_solana doesn't recurse the parent folder
-        import tempfile, shutil as _shutil
-        _tmp = tempfile.mkdtemp()
-        _shutil.copy2(target, _tmp)
-        target = Path(_tmp)
-    report = scan_solana(target)
+
+    # scan_solana expects a directory and recurses it, so a single file is
+    # copied into an isolated directory to stop findings bleeding in from
+    # siblings. That directory is scoped to this call: the previous mkdtemp()
+    # was never cleaned up, so on the server every Rust scan left a permanent
+    # copy of the user's uploaded source on disk.
+    if not target.is_file():
+        return _finish_solana(scan_solana(target), target)
+
+    with tempfile.TemporaryDirectory(prefix="chainaudit_solana_") as tmp:
+        tmp_dir = Path(tmp)
+        _shutil.copy2(target, tmp_dir)
+        report = scan_solana(tmp_dir)
+        # Findings carry paths inside the temp dir; rewrite them to bare
+        # filenames so no server-side path is exposed and nothing dangles.
+        _normalise_file_paths(report, tmp_dir)
+        return _finish_solana(report, tmp_dir)
+
+
+def _normalise_file_paths(report: dict, tmp_dir: Path) -> None:
+    """Replace temp-dir paths in findings with plain file names."""
+    for finding in report.get("findings", []):
+        affected = finding.get("files_affected")
+        if affected:
+            finding["files_affected"] = [Path(p).name for p in affected]
+
+
+def _finish_solana(report: dict, target: Path) -> dict:
     report["findings"] = _add_ml_predictions_solana(
         report.get("findings", []), target
     )
     report["total_findings"] = len(report.get("findings", []))
     return report
-
-
-_SOLANA_TO_EVM_CHECK = {
-    "missing-signer-check":     "suicidal",
-    "missing-owner-check":      "suicidal",
-    "arbitrary-cpi":            "reentrancy-eth",
-    "integer-overflow":         "integer-overflow",
-    "unchecked-arithmetic":     "integer-overflow",
-    "unsafe-code":              "assembly",
-    "account-confusion":        "incorrect-equality",
-    "reentrancy-cpi":           "reentrancy-eth",
-    "insecure-randomness":      "weak-prng",
-    "missing-rent-exemption":   "missing-zero-check",
-    "unvalidated-account-data": "missing-zero-check",
-    "missing-close-account":    "locked-ether",
-    "pdas-not-validated":       "incorrect-equality",
-    "missing-freeze-authority": "suicidal",
-    "deprecated-anchor":        "naming-convention",
-}
-
-_SEVERITY_CONFIDENCE = {
-    "CRITICAL": 0.87, "HIGH": 0.74, "MEDIUM": 0.58, "LOW": 0.42,
-}
 
 
 def _add_ml_predictions_solana(findings: list[dict], target: Path) -> list[dict]:
@@ -180,31 +174,3 @@ def _add_ml_predictions_solana(findings: list[dict], target: Path) -> list[dict]
     except Exception:
         pass
     return findings
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Zip router — routes each file in a zip to correct scanner
-# ─────────────────────────────────────────────────────────────────────────────
-
-def route_zip_scan(
-    sol_files: list[Path],
-    rs_files: list[Path],
-    ml_only: bool = False,
-) -> list[dict]:
-    """
-    Scan all files extracted from a zip.
-    Returns a list of per-file result dicts.
-    """
-    results = []
-
-    for sol_file in sol_files:
-        result = _scan_evm(sol_file, ml_only=ml_only)
-        result["file"] = sol_file.name
-        results.append(result)
-
-    for rs_file in rs_files:
-        result = _scan_solana(rs_file)
-        result["file"] = rs_file.name
-        results.append(result)
-
-    return results
