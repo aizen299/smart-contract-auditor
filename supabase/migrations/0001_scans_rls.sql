@@ -1,75 +1,89 @@
--- Row-level security for public.scans
+-- public.scans — scan history, and the row-level security that protects it.
 --
--- This file records the access policy that protects scan history. It is
--- schema-as-code, not an automatically applied migration: this project has no
--- Supabase CLI setup (no supabase/config.toml, no CI step), so the policies
--- below were applied by hand in the dashboard and are transcribed here so they
--- can be reviewed, diffed, and restored. Nothing runs this on deploy.
+-- The DDL below is the real remote schema, captured with `supabase db dump`
+-- on 2026-08-23, not hand-written. An earlier version of this file recorded
+-- only the RLS policies and deliberately omitted the table definition, on the
+-- grounds that guessing at column types would be worse than omitting them.
+-- That was right as documentation but wrong as a migration: `supabase db pull`
+-- replays local migrations against an empty shadow database, and a file that
+-- opens with `alter table public.scans ...` fails with 42P01 because nothing
+-- created the table. It is now replayable from nothing.
 --
--- Why it matters: NEXT_PUBLIC_SUPABASE_ANON_KEY ships to every browser, and
--- the `.eq("user_id", ...)` filter in frontend/app/history/page.tsx is a query
--- parameter, not a security boundary — a client can simply omit it. RLS is the
--- only thing that stops one user reading another's rows, and those rows carry
--- the full `findings` array: unfixed vulnerabilities in real contracts.
---
--- Verified live on 2026-08-23:
---   relrowsecurity = true
---   three policies present, matching the definitions below
---
--- Idempotent and atomic: safe to re-run. The drop/create pairs are wrapped in
--- a transaction so there is no window in which a policy is missing.
---
--- Not captured here: the CREATE TABLE for public.scans. Its exact column types,
--- defaults and constraints were not verified, and guessing at DDL that does not
--- match production would be worse than omitting it. To append the real
--- definition, run this in the SQL Editor and paste the result above:
---
---   select
---     column_name, data_type, is_nullable, column_default
---   from information_schema.columns
---   where table_schema = 'public' and table_name = 'scans'
---   order by ordinal_position;
+-- Why RLS is load-bearing here rather than defence in depth:
+-- NEXT_PUBLIC_SUPABASE_ANON_KEY ships to every browser, and the
+-- `.eq("user_id", ...)` filter in frontend/app/history/page.tsx is a query
+-- parameter, not a boundary — a client can simply omit it. RLS is what stops
+-- one user reading another's rows, and those rows carry the full `findings`
+-- array: unfixed vulnerabilities in real contracts under audit.
 
-begin;
+create table if not exists "public"."scans" (
+    "id"             "uuid" default "gen_random_uuid"() not null,
+    "user_id"        "uuid" not null,
+    "file_name"      "text" not null,
+    "risk_score"     integer not null,
+    "total_findings" integer not null,
+    "findings"       "jsonb" default '[]'::"jsonb" not null,
+    "created_at"     timestamp with time zone default "timezone"('utc'::"text", "now"()) not null
+);
 
-alter table public.scans enable row level security;
+alter table "public"."scans" owner to "postgres";
 
--- SELECT: a user sees only their own scans.
-drop policy if exists "Users can view own scans" on public.scans;
+-- Hidden from the auto-generated GraphQL API; the app uses PostgREST only.
+comment on table "public"."scans" is '@graphql({"visible": false})';
+
+alter table only "public"."scans"
+    add constraint "scans_pkey" primary key ("id");
+
+-- Deleting an auth user removes their scan history with them. Worth knowing:
+-- account deletion is already GDPR-shaped because of this cascade.
+alter table only "public"."scans"
+    add constraint "scans_user_id_fkey" foreign key ("user_id")
+    references "auth"."users"("id") on delete cascade;
+
+-- Table grants.
+--
+-- `anon` is deliberately absent: it holds USAGE on the schema but no privilege
+-- on this table, so an unauthenticated request is refused at the permission
+-- layer before RLS is consulted at all.
+--
+-- `authenticated` is granted UPDATE even though no UPDATE policy exists below.
+-- Under RLS a command with no policy is denied, so update is unreachable — but
+-- note the grant is wider than the policy, which means disabling RLS would
+-- silently make updates possible. The policies are the control, not the grants.
+grant all on table "public"."scans" to "service_role";
+grant select, insert, delete, update on table "public"."scans" to "authenticated";
+
+alter table "public"."scans" enable row level security;
+
 create policy "Users can view own scans"
-  on public.scans
-  for select
-  using (auth.uid() = user_id);
+    on "public"."scans" for select
+    using (("auth"."uid"() = "user_id"));
 
--- INSERT: a user cannot write a row attributed to someone else.
--- Uses with_check rather than using, since there is no pre-existing row.
-drop policy if exists "Users can insert own scans" on public.scans;
 create policy "Users can insert own scans"
-  on public.scans
-  for insert
-  with check (auth.uid() = user_id);
+    on "public"."scans" for insert
+    with check (("auth"."uid"() = "user_id"));
 
--- DELETE: a user can only remove their own scans. frontend/app/history/page.tsx
--- deletes by id alone, so this policy is what makes that safe.
-drop policy if exists "Users can delete own scans" on public.scans;
+-- frontend/app/history/page.tsx deletes by id alone, with no user_id predicate.
+-- This policy is the only thing that makes that safe.
 create policy "Users can delete own scans"
-  on public.scans
-  for delete
-  using (auth.uid() = user_id);
+    on "public"."scans" for delete
+    using (("auth"."uid"() = "user_id"));
 
--- No UPDATE policy, deliberately. The application never updates a scan, and
--- under RLS a command with no policy is denied. Adding a permissive UPDATE
--- policy "for completeness" would widen access for no reason.
+-- No UPDATE policy, deliberately: the app never updates a scan, and an
+-- un-policied command is denied. Adding a permissive one "for completeness"
+-- would widen access for nothing.
 
-commit;
-
--- Notes on what this does NOT protect against:
+-- ---------------------------------------------------------------------------
+-- Two things this schema does NOT protect against, worth knowing before adding
+-- another table:
 --
--- * The service_role key bypasses RLS entirely, by design and regardless of
---   these policies. It must never reach the browser. As of this commit the
---   frontend references only NEXT_PUBLIC_SUPABASE_URL and
---   NEXT_PUBLIC_SUPABASE_ANON_KEY, which is correct.
+-- 1. service_role bypasses RLS entirely, by design. It must never reach the
+--    browser. The frontend references only NEXT_PUBLIC_SUPABASE_URL and
+--    NEXT_PUBLIC_SUPABASE_ANON_KEY, which is correct.
 --
--- * relforcerowsecurity is false (the default). That exempts the table owner
---   from its own policies, which is what allows the SQL Editor to administer
---   the table. It is not a gap: the owner role is not reachable from a client.
+-- 2. This project carries Supabase's default privileges, which include
+--    `alter default privileges ... grant all on tables to "anon"`. A new table
+--    created by postgres in `public` is therefore granted to anon the moment
+--    it exists. RLS is the only thing between a new table and anyone holding
+--    the anon key — which is everyone, since it ships in the browser bundle.
+--    Enable RLS on every new table before putting data in it.
