@@ -29,8 +29,9 @@ jobs:
         working-directory: backend
         run: |
           pip install -r requirements.txt
-          pip install pytest
-          pip install -e .
+          # Test extras (pytest, httpx) are declared in pyproject so CI and a
+          # local checkout install the same set.
+          pip install -e ".[test]"
 
       - name: Lint with ruff
         working-directory: backend
